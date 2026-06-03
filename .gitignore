@@ -1,0 +1,15 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+node_modules/
+dist/
+build/
+*.sqlite
+*.db
+*.log
+*.err
+backend/data/
+backend/exports/
+frontend/.vite/
