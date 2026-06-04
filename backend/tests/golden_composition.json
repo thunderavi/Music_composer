@@ -11,10 +11,10 @@
       "bars": 4,
       "chords": ["Am", "Fmaj7", "C", "G"],
       "melody": [
-        { "pitch": "A4", "duration_beats": 1, "lyric_syllable": "rain" },
-        { "pitch": "C5", "duration_beats": 1, "lyric_syllable": "falls" },
-        { "pitch": "E5", "duration_beats": 1, "lyric_syllable": "soft" },
-        { "pitch": "rest", "duration_beats": 1, "lyric_syllable": null }
+        { "pitch": "A4", "duration_beats": 4, "lyric_syllable": "rain" },
+        { "pitch": "C5", "duration_beats": 4, "lyric_syllable": "falls" },
+        { "pitch": "E5", "duration_beats": 4, "lyric_syllable": "soft" },
+        { "pitch": "rest", "duration_beats": 4, "lyric_syllable": null }
       ],
       "lyric_lines": ["Rain on the glass", "Streetlights fade slow"]
     },
@@ -23,9 +23,10 @@
       "bars": 4,
       "chords": ["Fmaj7", "G", "Am", "Em"],
       "melody": [
-        { "pitch": "C5", "duration_beats": 1, "lyric_syllable": "stay" },
-        { "pitch": "B4", "duration_beats": 1, "lyric_syllable": "near" },
-        { "pitch": "A4", "duration_beats": 2, "lyric_syllable": "tonight" }
+        { "pitch": "C5", "duration_beats": 4, "lyric_syllable": "stay" },
+        { "pitch": "B4", "duration_beats": 4, "lyric_syllable": "near" },
+        { "pitch": "A4", "duration_beats": 4, "lyric_syllable": "tonight" },
+        { "pitch": "rest", "duration_beats": 4, "lyric_syllable": null }
       ],
       "lyric_lines": ["Stay near tonight", "Let the city breathe"]
     }

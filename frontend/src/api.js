@@ -29,6 +29,54 @@ export async function composeSong(input) {
   return response.json();
 }
 
+export async function refineSong(target, composition, instructions = "") {
+  const response = await fetch(`${API_BASE_URL}/refine`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target, composition, instructions })
+  });
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+  return response.json();
+}
+
+export async function validateComposition(composition) {
+  const response = await fetch(`${API_BASE_URL}/validate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(composition)
+  });
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+  return response.json();
+}
+
+export async function evaluateComposition(composition) {
+  const response = await fetch(`${API_BASE_URL}/evaluate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(composition)
+  });
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+  return response.json();
+}
+
+export async function reviewCommercialReadiness(composition) {
+  const response = await fetch(`${API_BASE_URL}/commercial-review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(composition)
+  });
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+  return response.json();
+}
+
 export async function saveDraft(draftId, composition) {
   const response = await fetch(`${API_BASE_URL}/drafts/${draftId}`, {
     method: "PUT",
@@ -41,7 +89,23 @@ export async function saveDraft(draftId, composition) {
   return response.json();
 }
 
-export async function downloadExport(path, composition, fallbackName) {
+export async function listDrafts() {
+  const response = await fetch(`${API_BASE_URL}/drafts`);
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+  return response.json();
+}
+
+export async function getDraft(draftId) {
+  const response = await fetch(`${API_BASE_URL}/drafts/${draftId}`);
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+  return response.json();
+}
+
+async function fetchExport(path, composition, fallbackName) {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -54,6 +118,15 @@ export async function downloadExport(path, composition, fallbackName) {
   const disposition = response.headers.get("content-disposition") || "";
   const match = disposition.match(/filename="([^"]+)"/);
   const filename = match?.[1] || fallbackName;
+  return { blob, filename };
+}
+
+export async function exportCompositionBlob(path, composition, fallbackName) {
+  return fetchExport(path, composition, fallbackName);
+}
+
+export async function downloadExport(path, composition, fallbackName) {
+  const { blob, filename } = await fetchExport(path, composition, fallbackName);
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

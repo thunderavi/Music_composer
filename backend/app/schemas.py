@@ -57,6 +57,11 @@ class Composition(BaseModel):
     lyrics: List[str] = Field(..., min_length=1, max_length=80)
     style_notes: List[str] = Field(default_factory=list, max_length=12)
     originality_notes: List[str] = Field(default_factory=list, max_length=12)
+    drum_pattern: List[str] = Field(default_factory=list, max_length=16)
+    bassline: List[str] = Field(default_factory=list, max_length=16)
+    mix_notes: List[str] = Field(default_factory=list, max_length=16)
+    commercial_notes: List[str] = Field(default_factory=list, max_length=16)
+    agent_trace: List[str] = Field(default_factory=list, max_length=16)
     disclaimer: str = Field(
         default="Generated music may resemble existing works. Review and clear rights before commercial use."
     )
@@ -72,6 +77,42 @@ class ComposeResponse(BaseModel):
     draft_id: str
     composition: Composition
     warnings: List[str] = Field(default_factory=list)
+
+
+class RefineRequest(BaseModel):
+    target: Literal["chords", "melody", "lyrics", "arrangement"] = "arrangement"
+    composition: Composition
+    instructions: Optional[str] = Field(default=None, max_length=240)
+
+
+class ValidationReport(BaseModel):
+    warnings: List[str] = Field(default_factory=list)
+    total_sections: int
+    total_bars: int
+    total_chords: int
+    total_melody_notes: int
+    lyric_lines: int
+
+
+class EvaluationReport(BaseModel):
+    overall_score: int
+    chord_validity: int
+    melody_key_fit: int
+    duration_fit: int
+    style_adherence: int
+    lyrics_score: int
+    disclaimer_score: int
+    export_readiness: int
+    commercial_safety: int
+    warnings: List[str] = Field(default_factory=list)
+    recommendations: List[str] = Field(default_factory=list)
+
+
+class CommercialReview(BaseModel):
+    score: int
+    warnings: List[str] = Field(default_factory=list)
+    checklist: List[str] = Field(default_factory=list)
+    notes: List[str] = Field(default_factory=list)
 
 
 class DraftSummary(BaseModel):
@@ -94,3 +135,5 @@ class ProviderInfo(BaseModel):
     base_url: str
     model: str
     api_key_configured: bool
+    architecture: str = "multi_agent_nim"
+    audio_engine: str = "procedural"
