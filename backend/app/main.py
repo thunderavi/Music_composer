@@ -1,14 +1,17 @@
 import logging
 import json
+import hashlib
+import hmac
 import shutil
 import subprocess
+import secrets
 import tempfile
 from io import BytesIO
 from functools import lru_cache
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import Settings, get_settings
@@ -36,8 +39,17 @@ from .schemas import (
     ProviderInfo,
     RefineRequest,
     ValidationReport,
+    RegisterRequest,
+    LoginRequest,
+    UserPublic,
+    AuthSession,
+    WorkspaceCreate,
+    WorkspaceRecord,
+    ProjectCreate,
+    ProjectUpdate,
+    ProjectRecord,
 )
-from .storage import DraftStore
+from .storage import DraftStoreProtocol as DraftStore, create_draft_store
 
 logger = logging.getLogger("music-composer")
 logging.basicConfig(level=logging.INFO)
@@ -45,11 +57,48 @@ logging.basicConfig(level=logging.INFO)
 
 @lru_cache
 def get_store() -> DraftStore:
-    return DraftStore(get_settings().app_database_path)
+    settings = get_settings()
+    return create_draft_store(settings.app_database_path, settings.database_url)
 
 
 def get_nim_client(settings: Settings = Depends(get_settings)) -> NimClient:
     return NimClient(settings)
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 180_000).hex()
+    return f"pbkdf2_sha256${salt}${digest}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    try:
+        algorithm, salt, digest = stored_hash.split("$", 2)
+    except ValueError:
+        return False
+    if algorithm != "pbkdf2_sha256":
+        return False
+    candidate = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt.encode("utf-8"), 180_000).hex()
+    return hmac.compare_digest(candidate, digest)
+
+
+def create_auth_session(user: UserPublic, store: DraftStore) -> AuthSession:
+    token = secrets.token_urlsafe(32)
+    store.create_session(user.user_id, token)
+    return AuthSession(token=token, user=user)
+
+
+def get_current_user(
+    authorization: str = Header(default=""),
+    store: DraftStore = Depends(get_store),
+) -> UserPublic:
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(status_code=401, detail="Login required.")
+    user = store.get_user_by_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid or expired session.")
+    return user
 
 
 settings = get_settings()
@@ -80,9 +129,89 @@ def provider(settings: Settings = Depends(get_settings)) -> ProviderInfo:
     )
 
 
+@api_router.post("/auth/register", response_model=AuthSession)
+def register(request: RegisterRequest, store: DraftStore = Depends(get_store)) -> AuthSession:
+    if store.get_user_by_email(request.email):
+        raise HTTPException(status_code=409, detail="An account already exists for this email.")
+    user = store.create_user(request.name.strip(), request.email.strip().lower(), hash_password(request.password))
+    return create_auth_session(user, store)
+
+
+@api_router.post("/auth/login", response_model=AuthSession)
+def login(request: LoginRequest, store: DraftStore = Depends(get_store)) -> AuthSession:
+    record = store.get_user_by_email(request.email.strip().lower())
+    if not record or not verify_password(request.password, record["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    user = UserPublic(
+        user_id=record["user_id"],
+        name=record["name"],
+        email=record["email"],
+        created_at=record["created_at"],
+    )
+    return create_auth_session(user, store)
+
+
+@api_router.get("/auth/me", response_model=UserPublic)
+def me(user: UserPublic = Depends(get_current_user)) -> UserPublic:
+    return user
+
+
+@api_router.get("/workspaces", response_model=list[WorkspaceRecord])
+def list_user_workspaces(
+    user: UserPublic = Depends(get_current_user),
+    store: DraftStore = Depends(get_store),
+) -> list[WorkspaceRecord]:
+    return store.list_workspaces(user.user_id)
+
+
+@api_router.post("/workspaces", response_model=WorkspaceRecord)
+def create_user_workspace(
+    request: WorkspaceCreate,
+    user: UserPublic = Depends(get_current_user),
+    store: DraftStore = Depends(get_store),
+) -> WorkspaceRecord:
+    return store.create_workspace(user.user_id, request.name.strip())
+
+
+@api_router.get("/workspaces/{workspace_id}/projects", response_model=list[ProjectRecord])
+def list_workspace_projects(
+    workspace_id: str,
+    user: UserPublic = Depends(get_current_user),
+    store: DraftStore = Depends(get_store),
+) -> list[ProjectRecord]:
+    return store.list_projects(user.user_id, workspace_id)
+
+
+@api_router.post("/workspaces/{workspace_id}/projects", response_model=ProjectRecord)
+def create_workspace_project(
+    workspace_id: str,
+    request: ProjectCreate,
+    user: UserPublic = Depends(get_current_user),
+    store: DraftStore = Depends(get_store),
+) -> ProjectRecord:
+    try:
+        return store.create_project(user.user_id, workspace_id, request.title.strip())
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Workspace not found.") from exc
+
+
+@api_router.put("/projects/{project_id}", response_model=ProjectRecord)
+def update_workspace_project(
+    project_id: str,
+    request: ProjectUpdate,
+    user: UserPublic = Depends(get_current_user),
+    store: DraftStore = Depends(get_store),
+) -> ProjectRecord:
+    try:
+        return store.update_project(user.user_id, project_id, title=request.title, draft_id=request.draft_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Project not found.") from exc
+
+
 @api_router.post("/compose", response_model=ComposeResponse)
 async def compose(
     request: ComposeRequest,
+    user: UserPublic = Depends(get_current_user),
     nim_client: NimClient = Depends(get_nim_client),
     store: DraftStore = Depends(get_store),
 ) -> ComposeResponse:
@@ -101,13 +230,14 @@ async def compose(
     if blocking:
         raise HTTPException(status_code=422, detail={"message": "Generated composition failed validation.", "warnings": warnings})
 
-    draft_id = store.create(composition)
+    draft_id = store.create(user.user_id, composition)
     return ComposeResponse(draft_id=draft_id, composition=composition, warnings=warnings)
 
 
 @api_router.post("/refine", response_model=ComposeResponse)
 async def refine(
     request: RefineRequest,
+    user: UserPublic = Depends(get_current_user),
     nim_client: NimClient = Depends(get_nim_client),
     store: DraftStore = Depends(get_store),
 ) -> ComposeResponse:
@@ -126,7 +256,7 @@ async def refine(
     if blocking:
         raise HTTPException(status_code=422, detail={"message": "Refined composition failed validation.", "warnings": warnings})
 
-    draft_id = store.create(composition)
+    draft_id = store.create(user.user_id, composition)
     return ComposeResponse(draft_id=draft_id, composition=composition, warnings=warnings)
 
 
@@ -146,13 +276,37 @@ def review_commercial_readiness(composition: Composition) -> CommercialReview:
 
 
 @api_router.get("/drafts", response_model=list[DraftSummary])
-def list_drafts(store: DraftStore = Depends(get_store)) -> list[DraftSummary]:
-    return store.list()
+def list_drafts(
+    user: UserPublic = Depends(get_current_user),
+    store: DraftStore = Depends(get_store),
+) -> list[DraftSummary]:
+    return store.list(user.user_id)
+
+
+@api_router.post("/drafts", response_model=DraftRecord)
+def create_draft(
+    composition: Composition,
+    user: UserPublic = Depends(get_current_user),
+    store: DraftStore = Depends(get_store),
+) -> DraftRecord:
+    warnings = validate_composition(composition)
+    blocking = [warning for warning in warnings if warning.startswith("Invalid")]
+    if blocking:
+        raise HTTPException(status_code=422, detail={"message": "Draft failed validation.", "warnings": warnings})
+    draft_id = store.create(user.user_id, composition)
+    record = store.get(user.user_id, draft_id)
+    if not record:
+        raise HTTPException(status_code=500, detail="Draft could not be created.")
+    return record
 
 
 @api_router.get("/drafts/{draft_id}", response_model=DraftRecord)
-def get_draft(draft_id: str, store: DraftStore = Depends(get_store)) -> DraftRecord:
-    record = store.get(draft_id)
+def get_draft(
+    draft_id: str,
+    user: UserPublic = Depends(get_current_user),
+    store: DraftStore = Depends(get_store),
+) -> DraftRecord:
+    record = store.get(user.user_id, draft_id)
     if not record:
         raise HTTPException(status_code=404, detail="Draft not found.")
     return record
@@ -162,6 +316,7 @@ def get_draft(draft_id: str, store: DraftStore = Depends(get_store)) -> DraftRec
 def update_draft(
     draft_id: str,
     composition: Composition,
+    user: UserPublic = Depends(get_current_user),
     store: DraftStore = Depends(get_store),
 ) -> DraftRecord:
     warnings = validate_composition(composition)
@@ -169,10 +324,10 @@ def update_draft(
     if blocking:
         raise HTTPException(status_code=422, detail={"message": "Draft failed validation.", "warnings": warnings})
     try:
-        store.update(draft_id, composition)
+        store.update(user.user_id, draft_id, composition)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Draft not found.") from exc
-    record = store.get(draft_id)
+    record = store.get(user.user_id, draft_id)
     if not record:
         raise HTTPException(status_code=404, detail="Draft not found.")
     return record

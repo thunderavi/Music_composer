@@ -45,8 +45,9 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("SOUNDFONT_PATH", "SF2_PATH", "SF3_PATH"),
     )
     app_database_path: str = Field(default="./data/drafts.db", alias="APP_DATABASE_PATH")
+    database_url: str = Field(default="", alias="DATABASE_URL")
     allowed_origins: str = Field(
-        default="*",
+        default="http://localhost:5173,http://localhost:4173,http://localhost",
         validation_alias=AliasChoices("CORS_ORIGIN", "ALLOWED_ORIGINS"),
     )
 

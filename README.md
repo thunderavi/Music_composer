@@ -68,6 +68,8 @@ API_PREFIX=/api/v1
 NVIDIA_API_KEY=your_nvidia_api_key
 NVIDIA_NIM_BASE_URL=https://integrate.api.nvidia.com
 NVIDIA_NIM_MODEL=meta/llama-3.1-8b-instruct
+APP_DATABASE_PATH=./data/drafts.db
+DATABASE_URL=
 NVIDIA_NIM_TIMEOUT_SECONDS=180
 NVIDIA_NIM_RETRIES=1
 FLUIDSYNTH_PATH=./tools/fluidsynth/dist/fluidsynth-v2.5.4-win10-x64-cpp11/bin/fluidsynth.exe
@@ -77,7 +79,8 @@ SOUNDFONT_PATH=./assets/soundfonts/MuseScore_General.sf3
 Run:
 
 ```powershell
-.\start-backend.ps1
+cd backend
+py app.py
 ```
 
 ### Frontend
@@ -85,8 +88,7 @@ Run:
 ```powershell
 cd frontend
 npm install
-cd ..
-.\start-frontend.ps1
+npm start
 ```
 
 Open the Vite URL, usually `http://localhost:5173`.

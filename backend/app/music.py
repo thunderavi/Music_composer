@@ -75,6 +75,61 @@ def _beats_per_bar(time_signature: str) -> float:
     return int(numerator) * (4 / int(denominator))
 
 
+def _raw_chord_event_beats(section: object) -> float:
+    return sum(
+        max(0.0, float(event.duration_beats))
+        for event in getattr(section, "chord_events", [])
+        if getattr(event, "chord", "").strip()
+    )
+
+
+def _effective_section_beats(section: object, beats_per_bar: float) -> float:
+    bar_capacity = float(section.bars) * beats_per_bar
+    event_capacity = _raw_chord_event_beats(section)
+    return max(bar_capacity, event_capacity)
+
+
+def _effective_section_bars(section: object, beats_per_bar: float) -> int:
+    return max(1, math.ceil(_effective_section_beats(section, beats_per_bar) / beats_per_bar))
+
+
+def _lyric_chord_tags(section: object) -> list[str]:
+    tags: list[str] = []
+    for line in getattr(section, "lyric_chord_lines", []):
+        tags.extend(tag.strip() for tag in re.findall(r"\[([^\]]+)\]", line) if tag.strip())
+    return tags
+
+
+def _chord_spans(section: object, beats_per_bar: float) -> list[tuple[str, float, float]]:
+    target_beats = _effective_section_beats(section, beats_per_bar)
+    source: list[tuple[str, float]] = [
+        (event.chord.strip(), max(0.0, float(event.duration_beats)))
+        for event in getattr(section, "chord_events", [])
+        if event.chord.strip() and float(event.duration_beats) > 0
+    ]
+    lyric_tags = _lyric_chord_tags(section)
+    if len(lyric_tags) > len(source):
+        duration_beats = target_beats / len(lyric_tags)
+        source = [(tag, duration_beats) for tag in lyric_tags]
+    if not source:
+        source = [(chord.strip(), beats_per_bar) for chord in section.chords if chord.strip()]
+    if not source:
+        source = [("C", target_beats)]
+
+    spans: list[tuple[str, float, float]] = []
+    cursor = 0.0
+    while cursor < target_beats - 1e-6:
+        for symbol, duration_beats in source:
+            if cursor >= target_beats - 1e-6:
+                break
+            actual_duration = min(duration_beats, target_beats - cursor)
+            if actual_duration <= 0:
+                continue
+            spans.append((symbol, cursor, actual_duration))
+            cursor += actual_duration
+    return spans
+
+
 def _key_pitch_classes(key_name: str) -> set[int]:
     parts = key_name.strip().replace("minor", "minor").replace("major", "major").split()
     if not parts:
@@ -92,11 +147,17 @@ def validate_composition(composition: Composition) -> List[str]:
     key_pitch_classes = _key_pitch_classes(composition.key)
     beats_per_bar = _beats_per_bar(composition.time_signature)
     for section in composition.sections:
-        if len(section.chords) != section.bars:
+        if not section.chord_events and len(section.chords) != section.bars:
             warnings.append(
                 f"{section.name} has {len(section.chords)} chords for {section.bars} bars; chords will be looped."
             )
-        for chord_symbol in section.chords:
+        event_beats = _raw_chord_event_beats(section)
+        if section.chord_events and event_beats > section.bars * beats_per_bar:
+            warnings.append(
+                f"{section.name} chord events cover {event_beats:g} beats; preview/export will use the longer timed progression."
+            )
+        chord_symbols = [symbol for symbol, _, _ in _chord_spans(section, beats_per_bar)]
+        for chord_symbol in chord_symbols:
             try:
                 normalize_chord_symbol(chord_symbol)
             except ValueError as exc:
@@ -153,19 +214,42 @@ def _snap_note_to_key(pitch_name: str, key_pitch_classes: set[int]) -> str:
     return parsed.transpose(shift).nameWithOctave
 
 
+def _repair_melody_pitch(pitch_name: str, fallback_octave: int = 4) -> str:
+    cleaned = pitch_name.strip()
+    if cleaned.lower() == "rest":
+        return "rest"
+    try:
+        return note.Note(cleaned).nameWithOctave
+    except Exception:
+        pass
+
+    match = re.match(r"^([A-G](?:#|b)?)(?:m|min|maj|dim|aug|sus|add|\d|#|b)*(?:(-?\d))?$", cleaned, re.IGNORECASE)
+    if match:
+        root, octave = match.groups()
+        return f"{root}{octave or fallback_octave}"
+    return "rest"
+
+
 def optimize_generated_composition(composition: Composition) -> Composition:
     optimized = composition.model_copy(deep=True)
     key_pitch_classes = _key_pitch_classes(optimized.key)
     beats_per_bar = _beats_per_bar(optimized.time_signature)
     for section in optimized.sections:
-        if section.chords:
+        event_beats = _raw_chord_event_beats(section)
+        if event_beats > section.bars * beats_per_bar:
+            section.bars = min(16, max(section.bars, math.ceil(event_beats / beats_per_bar)))
+        if section.chord_events:
+            section.chords = [symbol for symbol, _, _ in _chord_spans(section, beats_per_bar)][:32]
+        elif section.chords:
             section.chords = [section.chords[index % len(section.chords)] for index in range(section.bars)]
         for melody_note in section.melody:
+            if melody_note.pitch != "rest":
+                melody_note.pitch = _repair_melody_pitch(melody_note.pitch)
             if melody_note.pitch != "rest":
                 try:
                     melody_note.pitch = _snap_note_to_key(melody_note.pitch, key_pitch_classes)
                 except Exception:
-                    pass
+                    melody_note.pitch = "rest"
         target_beats = section.bars * beats_per_bar
         trimmed_melody = []
         used_beats = 0.0
@@ -444,7 +528,7 @@ def _section_offsets(composition: Composition) -> list[tuple[int, object]]:
     beats_per_bar = _beats_per_bar(composition.time_signature)
     for section in composition.sections:
         offsets.append((cursor, section))
-        cursor += int(section.bars * beats_per_bar * TICKS_PER_BEAT)
+        cursor += int(_effective_section_beats(section, beats_per_bar) * TICKS_PER_BEAT)
     return offsets
 
 
@@ -470,9 +554,10 @@ def _arrange_harmony_and_bass(
     quarter = TICKS_PER_BEAT
 
     for section_tick, section in _section_offsets(composition):
-        for bar_index in range(section.bars):
-            symbol = section.chords[bar_index % len(section.chords)]
-            bar_tick = section_tick + bar_index * bar_ticks
+        for symbol, start_beats, duration_beats in _chord_spans(section, beats_per_bar):
+            bar_tick = section_tick + int(start_beats * TICKS_PER_BEAT)
+            duration_ticks = max(1, int(duration_beats * TICKS_PER_BEAT))
+            beat_count = max(1, math.ceil(duration_beats))
             chord_full = _chord_midis(symbol, octave=3, power=False)
             chord_high = _chord_midis(symbol, octave=4, power=False)
             chord_power = _chord_midis(symbol, octave=3, power=True)
@@ -481,7 +566,7 @@ def _arrange_harmony_and_bass(
             octave = root + 12
 
             if family == "rock":
-                for step in range(int(beats_per_bar * 2)):
+                for step in range(max(1, int(duration_beats * 2))):
                     tick = bar_tick + step * half
                     velocity = 106 if step in {0, 4} else 84
                     _add_chord(harmony_events, channel=0, start_tick=tick, duration_ticks=int(half * 0.82), pitches=chord_power, velocity=velocity, strum_ticks=8)
@@ -489,51 +574,54 @@ def _arrange_harmony_and_bass(
                 continue
 
             if family == "edm":
-                for beat in range(int(beats_per_bar)):
+                for beat in range(beat_count):
                     _add_note(bass_events, channel=1, start_tick=bar_tick + beat * quarter, duration_ticks=int(quarter * 0.72), pitch=root if beat % 2 == 0 else octave, velocity=112)
                 for beat in (0, 2):
-                    if beat < beats_per_bar:
+                    if beat < duration_beats:
                         _add_chord(harmony_events, channel=0, start_tick=bar_tick + beat * quarter, duration_ticks=int(quarter * 0.72), pitches=chord_high[:4], velocity=94, strum_ticks=0)
-                _add_chord(pad_events, channel=3, start_tick=bar_tick, duration_ticks=int(bar_ticks * 0.96), pitches=chord_full[:4], velocity=54)
+                _add_chord(pad_events, channel=3, start_tick=bar_tick, duration_ticks=int(duration_ticks * 0.96), pitches=chord_full[:4], velocity=54)
                 continue
 
             if family == "jazz":
                 walking = [root, root + 4, fifth, root + 10]
                 if "m" in symbol.lower() and "maj" not in symbol.lower():
                     walking[1] = root + 3
-                for beat, pitch in enumerate(walking[: int(beats_per_bar)]):
+                for beat, pitch in enumerate(walking[:beat_count]):
                     _add_note(bass_events, channel=1, start_tick=bar_tick + beat * quarter, duration_ticks=int(quarter * 0.88), pitch=pitch, velocity=92)
                 for beat in (0, 2):
-                    if beat < beats_per_bar:
+                    if beat < duration_beats:
                         _add_chord(harmony_events, channel=0, start_tick=bar_tick + beat * quarter + 28, duration_ticks=int(quarter * 1.32), pitches=chord_full[:5], velocity=78, strum_ticks=3)
                 continue
 
             if family == "folk":
                 arpeggio = (chord_full + [root + 12, fifth + 12])[:6] or [root, fifth, octave]
-                for step in range(int(beats_per_bar * 2)):
+                for step in range(max(1, int(duration_beats * 2))):
                     pitch = arpeggio[step % len(arpeggio)]
                     _add_note(harmony_events, channel=0, start_tick=bar_tick + step * half, duration_ticks=int(half * 0.74), pitch=pitch, velocity=82 if step % 2 == 0 else 68)
                 _add_note(bass_events, channel=1, start_tick=bar_tick, duration_ticks=int(quarter * 0.9), pitch=root, velocity=76)
-                _add_note(bass_events, channel=1, start_tick=bar_tick + 2 * quarter, duration_ticks=int(quarter * 0.9), pitch=fifth, velocity=72)
+                if duration_beats > 2:
+                    _add_note(bass_events, channel=1, start_tick=bar_tick + 2 * quarter, duration_ticks=int(quarter * 0.9), pitch=fifth, velocity=72)
                 continue
 
             if family == "cinematic":
-                _add_chord(harmony_events, channel=0, start_tick=bar_tick, duration_ticks=int(bar_ticks * 0.98), pitches=chord_full[:5], velocity=82, strum_ticks=18)
-                _add_chord(pad_events, channel=3, start_tick=bar_tick, duration_ticks=int(bar_ticks * 0.98), pitches=[pitch + 12 for pitch in chord_full[:4]], velocity=70, strum_ticks=22)
+                _add_chord(harmony_events, channel=0, start_tick=bar_tick, duration_ticks=int(duration_ticks * 0.98), pitches=chord_full[:5], velocity=82, strum_ticks=18)
+                _add_chord(pad_events, channel=3, start_tick=bar_tick, duration_ticks=int(duration_ticks * 0.98), pitches=[pitch + 12 for pitch in chord_full[:4]], velocity=70, strum_ticks=22)
                 for beat in (0, 2):
-                    if beat < beats_per_bar:
+                    if beat < duration_beats:
                         _add_note(bass_events, channel=1, start_tick=bar_tick + beat * quarter, duration_ticks=int(quarter * 1.75), pitch=root - 12, velocity=104)
                 continue
 
             # Lo-fi and R&B lean on softer electric keys plus more space.
             strum = 18 if family == "lo-fi" else 6
-            _add_chord(harmony_events, channel=0, start_tick=bar_tick + 18, duration_ticks=int(bar_ticks * 0.82), pitches=chord_full[:5], velocity=76 if family == "lo-fi" else 86, strum_ticks=strum)
+            _add_chord(harmony_events, channel=0, start_tick=bar_tick + 18, duration_ticks=int(duration_ticks * 0.82), pitches=chord_full[:5], velocity=76 if family == "lo-fi" else 86, strum_ticks=strum)
             if family == "r&b":
                 for beat, pitch in [(0, root), (1.5, octave), (2.5, fifth)]:
-                    _add_note(bass_events, channel=1, start_tick=bar_tick + int(beat * quarter), duration_ticks=int(quarter * 0.82), pitch=pitch, velocity=98)
+                    if beat < duration_beats:
+                        _add_note(bass_events, channel=1, start_tick=bar_tick + int(beat * quarter), duration_ticks=int(quarter * 0.82), pitch=pitch, velocity=98)
             else:
                 _add_note(bass_events, channel=1, start_tick=bar_tick, duration_ticks=int(quarter * 1.2), pitch=root, velocity=84)
-                _add_note(bass_events, channel=1, start_tick=bar_tick + int(2.5 * quarter), duration_ticks=int(quarter * 0.72), pitch=fifth, velocity=74)
+                if duration_beats > 2.5:
+                    _add_note(bass_events, channel=1, start_tick=bar_tick + int(2.5 * quarter), duration_ticks=int(quarter * 0.72), pitch=fifth, velocity=74)
 
 
 def _arrange_drums(composition: Composition, *, family: str, drum_events: list[tuple[int, int, bytes]]) -> None:
@@ -543,7 +631,7 @@ def _arrange_drums(composition: Composition, *, family: str, drum_events: list[t
     eighth = TICKS_PER_BEAT // 2
 
     for section_tick, section in _section_offsets(composition):
-        for bar_index in range(section.bars):
+        for bar_index in range(_effective_section_bars(section, beats_per_bar)):
             bar_tick = section_tick + bar_index * bar_ticks
             if bar_index == 0:
                 _drum(drum_events, bar_tick, 0.5, 49 if family in {"rock", "edm"} else 51, 84)
@@ -684,20 +772,21 @@ def build_score(composition: Composition) -> stream.Score:
     drum_part = stream.Part(id="drums")
     drum_part.insert(0, instrument.Percussion())
 
+    beats_per_bar = _beats_per_bar(composition.time_signature)
     for section in composition.sections:
-        for bar_index in range(section.bars):
-            symbol = section.chords[bar_index % len(section.chords)]
+        for event_index, (symbol, _start_beats, duration_beats) in enumerate(_chord_spans(section, beats_per_bar)):
             chord_obj = m21_chord.Chord(_power_chord_pitches(symbol) if family == "rock" else _chord_pitches(symbol))
-            chord_obj.duration = duration.Duration(4)
+            chord_obj.duration = duration.Duration(duration_beats)
             chord_obj.volume.velocity = 76
-            chord_obj.addLyric(section.name if bar_index == 0 else "")
+            chord_obj.addLyric(section.name if event_index == 0 else "")
             chord_part.append(chord_obj)
 
             bass_note = note.Note(_chord_root_pitch(symbol))
-            bass_note.duration = duration.Duration(4)
+            bass_note.duration = duration.Duration(duration_beats)
             bass_note.volume.velocity = 92
             bass_part.append(bass_note)
 
+        for _bar_index in range(_effective_section_bars(section, beats_per_bar)):
             drum_events = [("C2", 1), ("D2", 1), ("C2", 1), ("D2", 1)] if family == "rock" else [("C2", 2), ("D2", 2)]
             for drum_pitch, drum_duration in drum_events:
                 drum_note = note.Note(drum_pitch)
@@ -884,6 +973,41 @@ def _mix_kick(
         samples[index] += (math.sin(phase) + click) * amplitude * envelope
 
 
+def _window_rms(values: List[float], start: int, end: int) -> float:
+    if end <= start:
+        return 0.0
+    total = sum(value * value for value in values[start:end])
+    return math.sqrt(total / (end - start))
+
+
+def _level_full_mix_samples(samples: List[float], sample_rate: int) -> None:
+    window = max(1, int(sample_rate * 0.7))
+    rms_values = []
+    for start in range(0, len(samples), window):
+        rms = _window_rms(samples, start, min(len(samples), start + window))
+        if rms > 0.01:
+            rms_values.append(rms)
+    if not rms_values:
+        return
+
+    rms_values.sort()
+    target = min(0.16, max(0.07, rms_values[len(rms_values) // 2]))
+    previous_gain = 1.0
+    for start in range(0, len(samples), window):
+        end = min(len(samples), start + window)
+        rms = _window_rms(samples, start, end)
+        if rms <= 0.01:
+            desired_gain = 1.0
+        else:
+            desired_gain = max(0.72, min(2.1, target / rms))
+
+        for index in range(start, end):
+            progress = (index - start) / max(1, end - start)
+            gain = previous_gain + (desired_gain - previous_gain) * progress
+            samples[index] *= gain
+        previous_gain = desired_gain
+
+
 def _style_family(composition: Composition) -> str:
     style = composition.style.strip().lower()
     if style in {"rock", "edm", "jazz", "folk", "cinematic", "r&b", "lo-fi"}:
@@ -962,7 +1086,7 @@ def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100,
     include_bass = stem in {"full", "rhythm", "bass"}
     include_harmony = stem in {"full", "harmony"}
     include_melody = stem in {"full", "melody"}
-    total_seconds = sum(section.bars * beats_per_bar * beat_seconds for section in composition.sections)
+    total_seconds = sum(_effective_section_beats(section, beats_per_bar) * beat_seconds for section in composition.sections)
     total_samples = max(1, int((total_seconds + 0.25) * sample_rate))
     samples: List[float] = [0.0] * total_samples
 
@@ -971,8 +1095,7 @@ def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100,
         section_start = cursor
         bar_seconds = beats_per_bar * beat_seconds
 
-        for bar_index in range(section.bars):
-            symbol = section.chords[bar_index % len(section.chords)]
+        for bar_index in range(_effective_section_bars(section, beats_per_bar)):
             bar_start = section_start + bar_index * bar_seconds
             if include_drums:
                 _mix_drum_pattern(
@@ -983,12 +1106,16 @@ def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100,
                     beat_seconds=beat_seconds,
                     sample_rate=sample_rate,
                 )
+
+        for symbol, start_beats, duration_beats in _chord_spans(section, beats_per_bar):
+            chord_start = section_start + start_beats * beat_seconds
+            chord_seconds = duration_beats * beat_seconds
             if include_bass:
                 _mix_tone(
                     samples,
                     frequency=_pitch_frequency(_chord_root_pitch(symbol, octave=2)),
-                    start_seconds=bar_start,
-                    duration_seconds=bar_seconds,
+                    start_seconds=chord_start,
+                    duration_seconds=chord_seconds,
                     sample_rate=sample_rate,
                     amplitude=0.18 if family in {"rock", "edm"} else 0.12,
                     waveform="saw" if family in {"rock", "edm"} else "triangle",
@@ -1003,8 +1130,8 @@ def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100,
                     _mix_tone(
                         samples,
                         frequency=_pitch_frequency(chord_pitch),
-                        start_seconds=bar_start + strum_offset,
-                        duration_seconds=bar_seconds * 0.96,
+                        start_seconds=chord_start + strum_offset,
+                        duration_seconds=chord_seconds * 0.96,
                         sample_rate=sample_rate,
                         amplitude=chord_amplitude,
                         waveform=chord_waveform,
@@ -1025,7 +1152,10 @@ def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100,
                 )
             melody_cursor += note_seconds
 
-        cursor = section_start + section.bars * bar_seconds
+        cursor = section_start + _effective_section_beats(section, beats_per_bar) * beat_seconds
+
+    if stem == "full":
+        _level_full_mix_samples(samples, sample_rate)
 
     peak = max(max(abs(value) for value in samples), 0.001)
     gain = 0.88 / peak if peak > 0.88 else 1.0
@@ -1066,9 +1196,10 @@ def composition_to_notation_text(composition: Composition) -> str:
         f"Time: {composition.time_signature}",
         "",
     ]
+    beats_per_bar = _beats_per_bar(composition.time_signature)
     for section in composition.sections:
         lines.append(f"[{section.name}]")
-        lines.append("Chords: " + " | ".join(section.chords))
+        lines.append("Chords: " + " | ".join(symbol for symbol, _, _ in _chord_spans(section, beats_per_bar)))
         melody = " ".join(f"{item.pitch}:{item.duration_beats}" for item in section.melody)
         lines.append("Melody: " + melody)
         if section.lyric_lines:
@@ -1080,4 +1211,9 @@ def composition_to_notation_text(composition: Composition) -> str:
 
 
 def flatten_chords(composition: Composition) -> List[Tuple[str, str]]:
-    return [(section.name, chord_symbol) for section in composition.sections for chord_symbol in section.chords]
+    beats_per_bar = _beats_per_bar(composition.time_signature)
+    return [
+        (section.name, chord_symbol)
+        for section in composition.sections
+        for chord_symbol, _, _ in _chord_spans(section, beats_per_bar)
+    ]

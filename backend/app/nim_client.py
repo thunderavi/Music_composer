@@ -821,8 +821,13 @@ Error:
         )[:16]
         return composition
 
+    async def compose_langgraph(self, request: ComposeRequest) -> dict[str, Composition]:
+        from .workflow import run_composition_workflow
+        return await run_composition_workflow(request)
+
     async def compose(self, request: ComposeRequest) -> Composition:
-        return await self.compose_multi_agent(request)
+        versions = await self.compose_langgraph(request)
+        return versions["balanced"]
 
     async def refine(self, target: str, composition: Composition, instructions: str | None = None) -> Composition:
         content = await self._chat(build_refine_prompt(target, composition, instructions), temperature=0.6)

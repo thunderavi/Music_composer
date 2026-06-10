@@ -17,7 +17,7 @@ from app.music import (
     optimize_generated_composition,
     validate_composition,
 )
-from app.schemas import Composition
+from app.schemas import ChordEvent, Composition
 
 
 def load_golden() -> Composition:
@@ -63,6 +63,82 @@ def test_wav_export_produces_playable_audio_bytes() -> None:
     sample_count = len(frames) // 2
     samples = unpack(f"<{sample_count}h", frames)
     assert max(abs(sample) for sample in samples) > 1_000
+
+
+def _window_rms_int16(samples: tuple[int, ...], sample_rate: int, start_seconds: float, duration_seconds: float) -> float:
+    start = int(start_seconds * sample_rate)
+    end = min(len(samples), int((start_seconds + duration_seconds) * sample_rate))
+    if end <= start:
+        return 0.0
+    return (sum(sample * sample for sample in samples[start:end]) / (end - start)) ** 0.5
+
+
+def test_full_wav_preview_keeps_middle_loudness_stable() -> None:
+    composition = load_golden()
+    composition.tempo_bpm = 120
+    composition.sections = [composition.sections[0].model_copy(deep=True)]
+    section = composition.sections[0]
+    section.bars = 6
+    section.chord_events = [
+        ChordEvent(chord="Am", duration_beats=8),
+        ChordEvent(chord="F", duration_beats=8),
+        ChordEvent(chord="Am", duration_beats=8),
+    ]
+    section.chords = ["Am", "F", "Am"]
+    section.melody = [
+        section.melody[0].model_copy(update={"pitch": "A4", "duration_beats": 8}),
+        section.melody[0].model_copy(update={"pitch": "rest", "duration_beats": 8}),
+        section.melody[0].model_copy(update={"pitch": "A4", "duration_beats": 8}),
+    ]
+
+    wav = composition_to_wav_bytes(composition)
+
+    with wave.open(BytesIO(wav), "rb") as wav_file:
+        sample_rate = wav_file.getframerate()
+        frames = wav_file.readframes(wav_file.getnframes())
+    sample_count = len(frames) // 2
+    samples = unpack(f"<{sample_count}h", frames)
+    first = _window_rms_int16(samples, sample_rate, 1.0, 2.0)
+    middle = _window_rms_int16(samples, sample_rate, 5.0, 2.0)
+    last = _window_rms_int16(samples, sample_rate, 9.0, 2.0)
+
+    assert middle / max(first, last) > 0.55
+
+
+def test_wav_export_uses_repeated_timed_chord_events() -> None:
+    composition = load_golden()
+    composition.tempo_bpm = 120
+    section = composition.sections[0]
+    section.bars = 1
+    section.chords = ["Am"]
+    section.chord_events = [
+        ChordEvent(chord="Am", duration_beats=4),
+        ChordEvent(chord="Am", duration_beats=4),
+    ]
+    section.melody = [section.melody[0].model_copy(update={"pitch": "rest", "duration_beats": 4})]
+
+    wav = composition_to_wav_bytes(composition)
+
+    with wave.open(BytesIO(wav), "rb") as wav_file:
+        duration_seconds = wav_file.getnframes() / wav_file.getframerate()
+    assert duration_seconds >= 4.0
+    assert "Chords: Am | Am" in composition_to_notation_text(composition)
+
+
+def test_preview_uses_denser_lyric_chord_tags() -> None:
+    composition = load_golden()
+    section = composition.sections[0]
+    section.bars = 1
+    section.chords = ["Am"]
+    section.chord_events = [ChordEvent(chord="Am", duration_beats=4)]
+    section.lyric_chord_lines = ["[Am]Rain [Am]keeps [Am]falling"]
+
+    notation = composition_to_notation_text(composition)
+    wav = composition_to_wav_bytes(composition)
+
+    assert "Chords: Am | Am | Am" in notation
+    with wave.open(BytesIO(wav), "rb") as wav_file:
+        assert wav_file.getnframes() > 100_000
 
 
 def test_rock_wav_uses_different_rendering_path() -> None:
@@ -168,6 +244,7 @@ def test_zip_package_shape() -> None:
 def test_optimize_generated_composition_snaps_and_pads_melody() -> None:
     composition = load_golden()
     composition.sections[0].chords = ["F", "C", "Am"]
+    composition.sections[0].chord_events = []
     composition.sections[0].melody = composition.sections[0].melody[:1]
     composition.sections[0].melody[0].pitch = "D#4"
     optimized = optimize_generated_composition(composition)
@@ -177,10 +254,22 @@ def test_optimize_generated_composition_snaps_and_pads_melody() -> None:
     assert validate_composition(optimized) == []
 
 
+def test_optimize_generated_composition_repairs_chord_like_melody_pitch() -> None:
+    composition = load_golden()
+    composition.sections[0].melody = composition.sections[0].melody[:1]
+    composition.sections[0].melody[0].pitch = "Am4"
+
+    optimized = optimize_generated_composition(composition)
+
+    assert optimized.sections[0].melody[0].pitch == "A4"
+    assert "Invalid melody pitch: Am4" not in validate_composition(optimized)
+
+
 def test_optimize_generated_composition_trims_overflowing_melody() -> None:
     composition = load_golden()
     composition.sections[0].bars = 1
     composition.sections[0].chords = ["Em"]
+    composition.sections[0].chord_events = []
     composition.sections[0].melody = composition.sections[0].melody[:2]
 
     optimized = optimize_generated_composition(composition)
