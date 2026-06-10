@@ -14,6 +14,13 @@ async function parseError(response) {
       return detail.map((d) => `${d.loc?.slice(1).join(" → ") ?? "field"}: ${d.msg}`).join("\n");
     }
     if (typeof detail === "string") return detail;
+    if (detail && typeof detail === "object") {
+      const message = detail.message || detail.msg;
+      const warnings = Array.isArray(detail.warnings) ? detail.warnings : [];
+      if (message && warnings.length) return `${message}\n${warnings.join("\n")}`;
+      if (message) return message;
+      if (warnings.length) return warnings.join("\n");
+    }
     return JSON.stringify(payload);
   }
   return response.text();
@@ -36,6 +43,17 @@ export async function loginUser(input) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input)
+  });
+  if (!response.ok) {
+    throw new Error(await parseError(response));
+  }
+  return response.json();
+}
+
+export async function logoutUser(token) {
+  const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+    method: "POST",
+    headers: authHeaders(token)
   });
   if (!response.ok) {
     throw new Error(await parseError(response));

@@ -1,11 +1,17 @@
 import json
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, List, Optional, Protocol
 
 from .schemas import Composition, DraftRecord, DraftSummary, ProjectRecord, UserPublic, WorkspaceRecord
+
+SESSION_TTL_DAYS = 30
+
+
+def _session_cutoff() -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=SESSION_TTL_DAYS)).isoformat()
 
 
 class DraftStoreProtocol(Protocol):
@@ -33,6 +39,9 @@ class DraftStoreProtocol(Protocol):
     def get_user_by_token(self, token: str) -> Optional[UserPublic]:
         ...
 
+    def delete_session(self, token: str) -> None:
+        ...
+
     def create_workspace(self, user_id: str, name: str) -> WorkspaceRecord:
         ...
 
@@ -50,8 +59,6 @@ class DraftStoreProtocol(Protocol):
 
 
 class DraftStore:
-    def __init__(self, database_path: str) -> None:
-        self.database_path = Path(database_path)
     def __init__(self, database_path: str) -> None:
         self.database_path = Path(database_path)
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
@@ -254,19 +261,25 @@ class DraftStore:
             connection.commit()
 
     def get_user_by_token(self, token: str) -> Optional[UserPublic]:
+        cutoff = _session_cutoff()
         with self._connect() as connection:
             row = connection.execute(
                 """
                 SELECT users.user_id, users.name, users.email, users.created_at
                 FROM sessions
                 JOIN users ON users.user_id = sessions.user_id
-                WHERE sessions.token = ?
+                WHERE sessions.token = ? AND sessions.created_at >= ?
                 """,
-                (token,),
+                (token, cutoff),
             ).fetchone()
         if not row:
             return None
         return UserPublic(user_id=row[0], name=row[1], email=row[2], created_at=row[3])
+
+    def delete_session(self, token: str) -> None:
+        with self._connect() as connection:
+            connection.execute("DELETE FROM sessions WHERE token = ?", (token,))
+            connection.commit()
 
     def create_workspace(self, user_id: str, name: str) -> WorkspaceRecord:
         workspace_id = str(uuid.uuid4())
@@ -361,6 +374,13 @@ class DraftStore:
                 raise KeyError(project_id)
             next_title = title if title is not None else row[3]
             next_draft_id = draft_id if draft_id is not None else row[4]
+            if next_draft_id:
+                owned = connection.execute(
+                    "SELECT 1 FROM drafts WHERE draft_id = ? AND user_id = ?",
+                    (next_draft_id, user_id),
+                ).fetchone()
+                if not owned:
+                    raise KeyError(next_draft_id)
             connection.execute(
                 """
                 UPDATE projects
@@ -398,6 +418,17 @@ class PostgresDraftStore:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        email TEXT NOT NULL UNIQUE,
+                        password_hash TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                cursor.execute(
+                    """
                     CREATE TABLE IF NOT EXISTS drafts (
                         draft_id TEXT PRIMARY KEY,
                         user_id TEXT,
@@ -410,25 +441,13 @@ class PostgresDraftStore:
                     )
                     """
                 )
-                # Check if user_id column exists (PostgreSQL migration)
                 cursor.execute("""
-                    SELECT column_name 
-                    FROM information_schema.columns 
+                    SELECT column_name
+                    FROM information_schema.columns
                     WHERE table_name='drafts' AND column_name='user_id'
                 """)
                 if not cursor.fetchone():
                     cursor.execute("ALTER TABLE drafts ADD COLUMN user_id TEXT REFERENCES users(user_id)")
-                cursor.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS users (
-                        user_id TEXT PRIMARY KEY,
-                        name TEXT NOT NULL,
-                        email TEXT NOT NULL UNIQUE,
-                        password_hash TEXT NOT NULL,
-                        created_at TEXT NOT NULL
-                    )
-                    """
-                )
                 cursor.execute(
                     """
                     CREATE TABLE IF NOT EXISTS sessions (
@@ -595,6 +614,7 @@ class PostgresDraftStore:
                 )
 
     def get_user_by_token(self, token: str) -> Optional[UserPublic]:
+        cutoff = _session_cutoff()
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -602,14 +622,19 @@ class PostgresDraftStore:
                     SELECT users.user_id, users.name, users.email, users.created_at
                     FROM sessions
                     JOIN users ON users.user_id = sessions.user_id
-                    WHERE sessions.token = %s
+                    WHERE sessions.token = %s AND sessions.created_at >= %s
                     """,
-                    (token,),
+                    (token, cutoff),
                 )
                 row = cursor.fetchone()
         if not row:
             return None
         return UserPublic(user_id=row[0], name=row[1], email=row[2], created_at=row[3])
+
+    def delete_session(self, token: str) -> None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("DELETE FROM sessions WHERE token = %s", (token,))
 
     def create_workspace(self, user_id: str, name: str) -> WorkspaceRecord:
         workspace_id = str(uuid.uuid4())
@@ -714,6 +739,13 @@ class PostgresDraftStore:
                     raise KeyError(project_id)
                 next_title = title if title is not None else row[3]
                 next_draft_id = draft_id if draft_id is not None else row[4]
+                if next_draft_id:
+                    cursor.execute(
+                        "SELECT 1 FROM drafts WHERE draft_id = %s AND user_id = %s",
+                        (next_draft_id, user_id),
+                    )
+                    if not cursor.fetchone():
+                        raise KeyError(next_draft_id)
                 cursor.execute(
                     """
                     UPDATE projects

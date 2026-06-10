@@ -156,6 +156,17 @@ def me(user: UserPublic = Depends(get_current_user)) -> UserPublic:
     return user
 
 
+@api_router.post("/auth/logout")
+def logout(
+    authorization: str = Header(default=""),
+    store: DraftStore = Depends(get_store),
+) -> dict:
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() == "bearer" and token:
+        store.delete_session(token)
+    return {"status": "ok"}
+
+
 @api_router.get("/workspaces", response_model=list[WorkspaceRecord])
 def list_user_workspaces(
     user: UserPublic = Depends(get_current_user),
@@ -205,7 +216,8 @@ def update_workspace_project(
     try:
         return store.update_project(user.user_id, project_id, title=request.title, draft_id=request.draft_id)
     except KeyError as exc:
-        raise HTTPException(status_code=404, detail="Project not found.") from exc
+        detail = "Draft not found." if str(exc) != project_id else "Project not found."
+        raise HTTPException(status_code=404, detail=detail) from exc
 
 
 @api_router.post("/compose", response_model=ComposeResponse)
@@ -216,7 +228,15 @@ async def compose(
     store: DraftStore = Depends(get_store),
 ) -> ComposeResponse:
     try:
-        composition = optimize_generated_composition(await nim_client.compose(request))
+        raw_versions = await nim_client.compose_langgraph(request)
+        versions = {
+            tier: optimize_generated_composition(comp)
+            for tier, comp in raw_versions.items()
+            if comp is not None
+        }
+        composition = versions.get("balanced")
+        if not composition:
+            raise RuntimeError("Composition workflow did not return a balanced variant.")
     except NimTimeoutError as exc:
         raise HTTPException(status_code=504, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -231,7 +251,7 @@ async def compose(
         raise HTTPException(status_code=422, detail={"message": "Generated composition failed validation.", "warnings": warnings})
 
     draft_id = store.create(user.user_id, composition)
-    return ComposeResponse(draft_id=draft_id, composition=composition, warnings=warnings)
+    return ComposeResponse(draft_id=draft_id, composition=composition, warnings=warnings, versions=versions or None)
 
 
 @api_router.post("/refine", response_model=ComposeResponse)
@@ -395,12 +415,18 @@ def export_mp3(composition: Composition, settings: Settings = Depends(get_settin
         wav_path = Path(temp_dir) / "input.wav"
         mp3_path = Path(temp_dir) / "output.mp3"
         wav_path.write_bytes(wav_bytes)
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", str(wav_path), "-codec:a", "libmp3lame", "-qscale:a", "2", str(mp3_path)],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-i", str(wav_path), "-codec:a", "libmp3lame", "-qscale:a", "2", str(mp3_path)],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="MP3 encoding failed. Install a working FFmpeg build or use WAV export.",
+            ) from exc
         mp3_bytes = mp3_path.read_bytes()
     return Response(
         content=mp3_bytes,

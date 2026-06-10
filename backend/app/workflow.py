@@ -114,6 +114,7 @@ def get_llm(temperature: float = 0.7) -> ChatOpenAI:
         openai_api_base=settings.normalized_nim_base_url,
         temperature=temperature,
         max_tokens=4096,
+        request_timeout=settings.nim_timeout_seconds,
     )
 
 async def _chat_json(llm: ChatOpenAI, system_prompt: str, user_prompt: str, repair_goal: str) -> Dict[str, Any]:
@@ -140,12 +141,14 @@ async def _chat_json(llm: ChatOpenAI, system_prompt: str, user_prompt: str, repa
             f"Repair this output into valid JSON for this goal: {repair_goal}.\n\n"
             f"Invalid output:\n{content[:3000]}\n\nError:\n{exc}"
         )
+        settings = get_settings()
         repair_llm = ChatOpenAI(
             model=llm.model_name,
             openai_api_key=llm.openai_api_key,
             openai_api_base=llm.openai_api_base,
             temperature=0.1,
             max_tokens=4096,
+            request_timeout=settings.nim_timeout_seconds,
         )
         repair_response = await repair_llm.ainvoke([
             SystemMessage(content=repair_system),
@@ -571,7 +574,14 @@ async def improvisor_node(state: AgentState) -> Dict[str, Any]:
     raw_doc = await _chat_json(llm, system_prompt, prompt, "improvisor arrangement")
     return {"arrangement": raw_doc}
 
-async def _compile_tier(state: AgentState, tier: str, temperature: float, lyrics_source: Dict[str, Any]) -> Composition:
+async def _compile_tier(
+    state: AgentState,
+    tier: str,
+    temperature: float,
+    lyrics_source: Dict[str, Any],
+    *,
+    run_reviews: bool = True,
+) -> Composition:
     logger.info("Director compiling tier: %s", tier)
     llm = get_llm(temperature=temperature)
     prompt = build_director_prompt(state["request"], state, tier, lyrics_source)
@@ -587,49 +597,63 @@ async def _compile_tier(state: AgentState, tier: str, temperature: float, lyrics
     composition.drum_pattern = _normalize_lines(arrangement.get("drum_pattern"), f"genre groove matching {state['request'].tempo_bpm} BPM")[:16]
     composition.bassline = _normalize_lines(arrangement.get("bassline"), "genre bassline following roots")[:16]
     
-    # 3. Perform Critic, Mix, and Safety evaluations on this specific tier
-    critic_doc = await _chat_json(
-        get_llm(temperature=0.2),
-        "You are a critical music editor. Review for style adherence. Output JSON only.",
-        build_critic_agent_prompt(composition),
-        f"critic review ({tier})"
-    )
-    mix_doc = await _chat_json(
-        get_llm(temperature=0.35),
-        "You are an expert audio mixing engineer. Write stem mixing notes. Output JSON only.",
-        build_mix_agent_prompt(state["request"], composition),
-        f"mix review ({tier})"
-    )
-    safety_doc = await _chat_json(
-        get_llm(temperature=0.2),
-        "You are a commercial licensing safety agent. Output JSON only.",
-        build_safety_agent_prompt(state["request"], composition),
-        f"safety review ({tier})"
-    )
-    
-    critic_notes = _normalize_lines(critic_doc.get("improvements"), "Critic agent approved the editable draft.")
-    if critic_doc.get("warnings"):
-        critic_notes.extend(_normalize_lines(critic_doc.get("warnings"), "Review warnings before release."))
-    
-    composition.originality_notes = (composition.originality_notes + critic_notes)[:12]
-    composition.mix_notes = _normalize_lines(mix_doc.get("mix_notes"), "Balance sections before export.")[:16]
-    
-    composition.commercial_notes = (
-        _normalize_lines(safety_doc.get("commercial_notes"), "Use human review before commercial release.")
-        + _normalize_lines(safety_doc.get("risk_warnings"), "No major commercial safety warnings returned.")
-    )[:16]
-    
-    composition.agent_trace = [
+    base_trace = [
         "Ag0 Reference Agent analyzed reference patterns.",
         "Ag1 Theorist Agent generated progressions.",
         "Ag2 Composer Agent wrote melody.",
         "Ag3 Lyricist Agent wrote lyric lines.",
         "Ag4 Improvisor Agent embellished parts.",
         f"Ag5 Director Agent compiled {tier.upper()} variant.",
-        "Critic Agent reviewed style adherence.",
-        "Mix Agent generated audio stem notes.",
-        "Safety Agent audited rights risks."
-    ][:16]
+    ]
+
+    if run_reviews:
+        critic_doc = await _chat_json(
+            get_llm(temperature=0.2),
+            "You are a critical music editor. Review for style adherence. Output JSON only.",
+            build_critic_agent_prompt(composition),
+            f"critic review ({tier})"
+        )
+        mix_doc = await _chat_json(
+            get_llm(temperature=0.35),
+            "You are an expert audio mixing engineer. Write stem mixing notes. Output JSON only.",
+            build_mix_agent_prompt(state["request"], composition),
+            f"mix review ({tier})"
+        )
+        safety_doc = await _chat_json(
+            get_llm(temperature=0.2),
+            "You are a commercial licensing safety agent. Output JSON only.",
+            build_safety_agent_prompt(state["request"], composition),
+            f"safety review ({tier})"
+        )
+
+        critic_notes = _normalize_lines(critic_doc.get("improvements"), "Critic agent approved the editable draft.")
+        if critic_doc.get("warnings"):
+            critic_notes.extend(_normalize_lines(critic_doc.get("warnings"), "Review warnings before release."))
+
+        composition.originality_notes = (composition.originality_notes + critic_notes)[:12]
+        composition.mix_notes = _normalize_lines(mix_doc.get("mix_notes"), "Balance sections before export.")[:16]
+        composition.commercial_notes = (
+            _normalize_lines(safety_doc.get("commercial_notes"), "Use human review before commercial release.")
+            + _normalize_lines(safety_doc.get("risk_warnings"), "No major commercial safety warnings returned.")
+        )[:16]
+        composition.agent_trace = (
+            base_trace
+            + [
+                "Critic Agent reviewed style adherence.",
+                "Mix Agent generated audio stem notes.",
+                "Safety Agent audited rights risks.",
+            ]
+        )[:16]
+    else:
+        composition.mix_notes = _normalize_lines(
+            composition.mix_notes,
+            "Balance sections before export.",
+        )[:16]
+        composition.commercial_notes = _normalize_lines(
+            composition.commercial_notes,
+            "Use human review before commercial release.",
+        )[:16]
+        composition.agent_trace = base_trace[:16]
     
     return composition
 
@@ -638,9 +662,9 @@ async def director_node(state: AgentState) -> Dict[str, Any]:
     user_lyrics = state.get("lyrics") or {}
     ai_lyrics = state.get("ai_lyrics") or {}
     
-    safe_task = _compile_tier(state, "safe", 0.15, user_lyrics)
-    balanced_task = _compile_tier(state, "balanced", 0.6, user_lyrics)
-    wild_task = _compile_tier(state, "wild", 0.95, ai_lyrics)
+    safe_task = _compile_tier(state, "safe", 0.15, user_lyrics, run_reviews=False)
+    balanced_task = _compile_tier(state, "balanced", 0.6, user_lyrics, run_reviews=True)
+    wild_task = _compile_tier(state, "wild", 0.95, ai_lyrics, run_reviews=False)
     
     safe_comp, balanced_comp, wild_comp = await asyncio.gather(safe_task, balanced_task, wild_task)
     return {

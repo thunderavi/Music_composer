@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   BadgeCheck,
@@ -40,6 +40,7 @@ import {
   listDrafts,
   listWorkspaces,
   loginUser,
+  logoutUser,
   refineSong,
   registerUser,
   reviewCommercialReadiness,
@@ -190,7 +191,7 @@ function localMetrics(composition) {
   return {
     sections: composition.sections.length,
     bars: composition.sections.reduce((sum, section) => sum + section.bars, 0),
-    chords: composition.sections.reduce((sum, section) => sum + section.chords.length, 0),
+    chords: composition.sections.reduce((sum, section) => sum + (section.chords?.length || section.chord_events?.length || 0), 0),
     notes: composition.sections.reduce((sum, section) => sum + section.melody.length, 0),
     lyrics: composition.lyrics.length
   };
@@ -406,7 +407,7 @@ function ArrangementMap({ composition }) {
       <div className="section-lanes">
         {composition.sections.map((section, index) => {
           const widthPct = Math.max(14, (section.bars / totalBars) * 100);
-          const chordCount = section.chord_events?.length || section.chords.length;
+          const chordCount = section.chord_events?.length || section.chords?.length || 0;
           const lyricCount = section.lyric_lines?.length || section.lyric_chord_lines?.length || 0;
           return (
             <div className="section-lane" key={`${section.name}-${index}`} style={{ width: `${widthPct}%` }}>
@@ -998,6 +999,7 @@ function App() {
   const [analysisStamp, setAnalysisStamp] = useState("");
   const [versions, setVersions] = useState(null);
   const [activeTier, setActiveTier] = useState("balanced");
+  const qualityRequestRef = useRef(0);
   const [workspaces, setWorkspaces] = useState([]);
   const [projects, setProjects] = useState([]);
   const [selectedWorkspace, setSelectedWorkspace] = useState(null);
@@ -1215,13 +1217,13 @@ function App() {
     });
   }
 
-  function handleSelectTier(tier) {
+  async function handleSelectTier(tier) {
     if (!versions || !versions[tier]) return;
     setActiveTier(tier);
     setComposition(versions[tier]);
-    refreshQuality(versions[tier]);
     setRenderedAudio(null);
     stopPreview();
+    await refreshQuality(versions[tier]);
   }
 
   useEffect(() => {
@@ -1264,8 +1266,15 @@ function App() {
     setStatus("");
   }
 
-  function handleLogout() {
+  async function handleLogout() {
     stopPreview();
+    if (token) {
+      try {
+        await logoutUser(token);
+      } catch {
+        // Clear local session even if server logout fails.
+      }
+    }
     setSession(null);
     setWorkspaces([]);
     setProjects([]);
@@ -1355,21 +1364,36 @@ function App() {
   }
 
   async function saveCurrentIfPossible() {
-    if (!draftId || !composition) return;
-    const response = await saveDraft(token, draftId, composition);
-    if (selectedProject) {
-      const linkedProject = await updateProject(token, selectedProject.project_id, { title: response.composition.title, draft_id: draftId });
-      setSelectedProject(linkedProject);
+    if (!draftId || !composition) return true;
+    try {
+      const response = await saveDraft(token, draftId, composition);
+      if (selectedProject) {
+        const linkedProject = await updateProject(token, selectedProject.project_id, { title: response.composition.title, draft_id: draftId });
+        setSelectedProject(linkedProject);
+      }
+      return true;
+    } catch (err) {
+      setError(typeof err.message === "string" ? err.message : "Could not save draft.");
+      return false;
     }
+  }
+
+  async function returnToDashboard() {
+    const saved = await saveCurrentIfPossible();
+    if (saved) setStudioOpen(false);
   }
 
   async function refreshQuality(nextComposition = composition) {
     if (!nextComposition) return;
+    const requestId = ++qualityRequestRef.current;
     const report = await validateComposition(nextComposition);
-    setQuality(report);
+    if (requestId !== qualityRequestRef.current) return;
     const evalReport = await evaluateComposition(nextComposition);
-    setEvaluation(evalReport);
+    if (requestId !== qualityRequestRef.current) return;
     const commercialReport = await reviewCommercialReadiness(nextComposition);
+    if (requestId !== qualityRequestRef.current) return;
+    setQuality(report);
+    setEvaluation(evalReport);
     setCommercialReview(commercialReport);
     setAnalysisStamp(new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
     return { report, evalReport, commercialReport };
@@ -1397,6 +1421,10 @@ function App() {
 
   async function openDraft(recordId, linkedProject = null) {
     await runWithStatus("open-draft", async () => {
+      if (draftId && composition && recordId !== draftId) {
+        const saved = await saveCurrentIfPossible();
+        if (!saved) return;
+      }
       try {
         const record = await getDraft(token, recordId);
         if (linkedProject) {
@@ -1437,11 +1465,16 @@ function App() {
     await runWithStatus("generate", async () => {
       const response = await composeSong(token, input);
       const nextComposition = { ...response.composition, title: projectName };
+      const nextVersions = response.versions
+        ? Object.fromEntries(
+            Object.entries(response.versions).map(([tier, comp]) => [tier, { ...comp, title: projectName }])
+          )
+        : null;
       const linkedProject = await updateProject(token, selectedProject.project_id, { draft_id: response.draft_id, title: nextComposition.title });
       setSelectedProject(linkedProject);
       setDraftId(response.draft_id);
       setComposition(nextComposition);
-      setVersions(response.versions || null);
+      setVersions(nextVersions);
       setActiveTier("balanced");
       setRenderedAudio(null);
       setStatus(response.warnings?.length ? response.warnings.join(" ") : "Draft generated.");
@@ -1473,6 +1506,8 @@ function App() {
       }
       setDraftId(response.draft_id);
       setComposition(response.composition);
+      setVersions(null);
+      setActiveTier("balanced");
       setRenderedAudio(null);
       setStatus(response.warnings?.length ? response.warnings.join(" ") : `${target} regenerated.`);
       await refreshQuality(response.composition);
@@ -1691,9 +1726,7 @@ function App() {
         <div
           className="brand-lockup clickable-brand"
           title="Return to Dashboard"
-          onClick={() => {
-            saveCurrentIfPossible().finally(() => setStudioOpen(false));
-          }}
+          onClick={() => { returnToDashboard(); }}
         >
           <div className="brand-mark"><Music size={22} /></div>
           <div>
@@ -1706,7 +1739,7 @@ function App() {
             <button className={activeMenu === "file" ? "active" : ""} onClick={() => toggleMenu("file")}>File</button>
             {activeMenu === "file" && (
               <div className="menu-popover">
-                <button onClick={() => { saveCurrentIfPossible().finally(() => setStudioOpen(false)); closeMenus(); }}>Dashboard</button>
+                <button onClick={() => { returnToDashboard(); closeMenus(); }}>Dashboard</button>
                 <button onClick={handleNewWorkspace}>New Workspace</button>
                 <button onClick={handleNewProject} disabled={!hasWorkspace}>New Project</button>
                 <button onClick={() => { setActiveDialog("open"); closeMenus(); }}>Open Saved Project</button>
@@ -1975,7 +2008,7 @@ function App() {
               </div>
             )}
             <div className="transport-actions">
-              <button onClick={() => { saveCurrentIfPossible().finally(() => setStudioOpen(false)); }} disabled={Boolean(busyAction)}>
+              <button onClick={() => { returnToDashboard(); }} disabled={Boolean(busyAction)}>
                 <Layers size={17} />
                 Dashboard
               </button>
@@ -2087,7 +2120,7 @@ function App() {
                     </div>
                     <label>Chords
                       <div className="chip-editor">
-                        {section.chords.map((chord, chordIndex) => (
+                        {(section.chords || section.chord_events?.map((e) => e.chord) || []).map((chord, chordIndex) => (
                           <input
                             key={`${chord}-${chordIndex}`}
                             value={chord}
@@ -2105,7 +2138,7 @@ function App() {
                           />
                         ))}
                       </div>
-                      <input className="compact-input" value={section.chords.join(" - ")} onChange={(event) => updateSection(index, (current) => {
+                      <input className="compact-input" value={(section.chords || section.chord_events?.map((e) => e.chord) || []).join(" - ")} onChange={(event) => updateSection(index, (current) => {
                         const chords = splitChords(event.target.value);
                         return { ...current, chords, chord_events: chordEventsFromChords(chords, composition.time_signature) };
                       })} />

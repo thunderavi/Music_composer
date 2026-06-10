@@ -100,3 +100,36 @@ def test_draft_isolation(tmp_path) -> None:
         assert response_list_1.json()[0]["draft_id"] == draft_id
     finally:
         app.dependency_overrides.clear()
+
+
+def test_project_rejects_foreign_draft_id(tmp_path) -> None:
+    store = DraftStore(str(tmp_path / "drafts.db"))
+    app.dependency_overrides[get_store] = lambda: store
+    try:
+        user_a = UserPublic(user_id="user_a", name="A", email="a@example.com", created_at="2026-06-10T00:00:00Z")
+        user_b = UserPublic(user_id="user_b", name="B", email="b@example.com", created_at="2026-06-10T00:00:00Z")
+        payload = load_golden_payload()
+
+        app.dependency_overrides[get_current_user] = lambda: user_a
+        client = TestClient(app)
+        draft_id = client.post("/api/v1/drafts", json=payload, headers={"Authorization": "Bearer a"}).json()["draft_id"]
+        workspace_id = client.post(
+            "/api/v1/workspaces",
+            json={"name": "Studio"},
+            headers={"Authorization": "Bearer a"},
+        ).json()["workspace_id"]
+        project_id = client.post(
+            f"/api/v1/workspaces/{workspace_id}/projects",
+            json={"title": "Song"},
+            headers={"Authorization": "Bearer a"},
+        ).json()["project_id"]
+
+        app.dependency_overrides[get_current_user] = lambda: user_b
+        response = client.put(
+            f"/api/v1/projects/{project_id}",
+            json={"draft_id": draft_id},
+            headers={"Authorization": "Bearer b"},
+        )
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
