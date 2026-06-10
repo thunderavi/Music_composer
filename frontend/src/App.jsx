@@ -536,6 +536,8 @@ function LandingAuth({ onAuth }) {
   const [form, setForm] = useState({ name: "", email: "", password: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [redirecting, setRedirecting] = useState(false);
+  const [redirectProgress, setRedirectProgress] = useState(0);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -545,12 +547,49 @@ function LandingAuth({ onAuth }) {
       const response = mode === "register"
         ? await registerUser(form)
         : await loginUser({ email: form.email, password: form.password });
-      onAuth(response);
+      
+      setRedirecting(true);
+      let progress = 0;
+      const interval = setInterval(() => {
+        progress += 4;
+        if (progress >= 100) {
+          clearInterval(interval);
+          onAuth(response);
+        } else {
+          setRedirectProgress(progress);
+        }
+      }, 50); // ~1.25s animation time
     } catch (err) {
       setError(err.message || "Authentication failed.");
-    } finally {
       setBusy(false);
     }
+  }
+
+  if (redirecting) {
+    let subtitle = "Setting up secure workspace...";
+    if (redirectProgress > 70) {
+      subtitle = "Preparing digital workstation...";
+    } else if (redirectProgress > 35) {
+      subtitle = "Loading creative history...";
+    }
+
+    return (
+      <main className="landing-shell redirecting-loader">
+        <div className="loader-container">
+          <div className="brand-lockup loader-brand">
+            <div className="brand-mark"><Music size={32} className="spinning-loader" /></div>
+            <h2>Maestro Studio</h2>
+          </div>
+          <div className="progress-track">
+            <div className="progress-fill" style={{ width: `${redirectProgress}%` }} />
+          </div>
+          <div className="loader-status">
+            <strong>{redirectProgress}%</strong>
+            <span>{subtitle}</span>
+          </div>
+        </div>
+      </main>
+    );
   }
 
   return (
@@ -607,7 +646,15 @@ function LandingAuth({ onAuth }) {
           </label>
           {error && <div className="message error">{error}</div>}
           <button className="primary-button" disabled={busy}>
-            {busy ? "Working" : mode === "register" ? "Create Account" : "Login"}
+            {busy ? (
+              <span className="button-progress-bar" aria-label="Loading">
+                <span className="button-progress-fill" />
+              </span>
+            ) : mode === "register" ? (
+              "Create Account"
+            ) : (
+              "Login"
+            )}
           </button>
         </form>
       </section>
@@ -630,7 +677,10 @@ function UserDashboard({
   onOpenProject,
   onRenameProject,
   theme,
-  onToggleTheme
+  onToggleTheme,
+  loadingWorkspaces,
+  loadingProjects,
+  loadingDrafts
 }) {
   return (
     <main className="dashboard-shell">
@@ -738,7 +788,19 @@ function UserDashboard({
               </button>
             </div>
             <div className="panel-list">
-              {workspaces.length === 0 ? (
+              {loadingWorkspaces ? (
+                Array.from({ length: 3 }).map((_, index) => (
+                  <div key={index} className="list-card workspace-card skeleton-item">
+                    <div className="card-left">
+                      <div className="folder-icon skeleton-element placeholder-icon"></div>
+                      <div className="card-info">
+                        <div className="skeleton-element text-line main-title"></div>
+                        <div className="skeleton-element text-line sub-title"></div>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : workspaces.length === 0 ? (
                 <div className="empty-state">
                   <p>Create a workspace to start mapping projects.</p>
                 </div>
@@ -782,6 +844,21 @@ function UserDashboard({
                 <div className="empty-state">
                   <p>Select or create a workspace first.</p>
                 </div>
+              ) : loadingProjects ? (
+                Array.from({ length: 3 }).map((_, index) => (
+                  <div key={index} className="list-card project-card skeleton-item">
+                    <div className="project-card-left">
+                      <div className="music-status-icon skeleton-element placeholder-icon"></div>
+                      <div className="card-info">
+                        <div className="skeleton-element text-line main-title"></div>
+                        <div className="skeleton-element text-line sub-title"></div>
+                      </div>
+                    </div>
+                    <div className="project-actions">
+                      <div className="skeleton-element placeholder-button"></div>
+                    </div>
+                  </div>
+                ))
               ) : projects.length === 0 ? (
                 <div className="empty-state">
                   <p>Create a project inside this workspace.</p>
@@ -829,7 +906,18 @@ function UserDashboard({
             <span className="drafts-count">{drafts.length} drafts</span>
           </div>
           <div className="history-grid">
-            {drafts.length === 0 ? (
+            {loadingDrafts ? (
+              Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="history-card skeleton-item">
+                  <div className="history-card-header">
+                    <div className="skeleton-element placeholder-icon"></div>
+                    <div className="skeleton-element placeholder-tag"></div>
+                  </div>
+                  <div className="skeleton-element text-line main-title"></div>
+                  <div className="skeleton-element text-line sub-title"></div>
+                </div>
+              ))
+            ) : drafts.length === 0 ? (
               <div className="empty-state wide">
                 <p>No drafts saved yet.</p>
               </div>
@@ -884,6 +972,9 @@ function App() {
   const [dialogInputText, setDialogInputText] = useState("");
   const [dialogTargetItem, setDialogTargetItem] = useState(null);
   const [theme, setTheme] = useState(() => localStorage.getItem("maestro-studio-theme") || "dark");
+  const [loadingWorkspaces, setLoadingWorkspaces] = useState(false);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+  const [loadingDrafts, setLoadingDrafts] = useState(false);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -1155,19 +1246,33 @@ function App() {
 
   async function refreshWorkspaces() {
     if (!token) return;
-    const records = await listWorkspaces(token);
-    setWorkspaces(records);
-    setSelectedWorkspace((current) => current || records[0] || null);
-    if (!selectedWorkspace && records[0]) {
-      await refreshProjects(records[0].workspace_id);
+    setLoadingWorkspaces(true);
+    try {
+      const records = await listWorkspaces(token);
+      setWorkspaces(records);
+      setSelectedWorkspace((current) => current || records[0] || null);
+      if (!selectedWorkspace && records[0]) {
+        await refreshProjects(records[0].workspace_id);
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoadingWorkspaces(false);
     }
   }
 
   async function refreshProjects(workspaceId = selectedWorkspace?.workspace_id) {
     if (!token || !workspaceId) return;
-    const records = await listProjects(token, workspaceId);
-    setProjects(records);
-    setSelectedProject((current) => current || records[0] || null);
+    setLoadingProjects(true);
+    try {
+      const records = await listProjects(token, workspaceId);
+      setProjects(records);
+      setSelectedProject((current) => current || records[0] || null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoadingProjects(false);
+    }
   }
 
   async function selectWorkspace(workspace) {
@@ -1244,31 +1349,50 @@ function App() {
   }
 
   async function refreshDrafts() {
+    setLoadingDrafts(true);
     try {
       setDrafts(await listDrafts(token));
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoadingDrafts(false);
     }
   }
 
   async function openDraft(recordId, linkedProject = null) {
     await runWithStatus("open-draft", async () => {
-      const record = await getDraft(token, recordId);
-      if (linkedProject) {
-        setSelectedProject(linkedProject);
-      } else if (selectedWorkspace && token) {
-        const project = await createProject(token, selectedWorkspace.workspace_id, record.composition.title);
-        const linked = await updateProject(token, project.project_id, { draft_id: record.draft_id });
-        setSelectedProject(linked);
-        await refreshProjects(selectedWorkspace.workspace_id);
+      try {
+        const record = await getDraft(token, recordId);
+        if (linkedProject) {
+          setSelectedProject(linkedProject);
+        } else if (selectedWorkspace && token) {
+          const project = await createProject(token, selectedWorkspace.workspace_id, record.composition.title);
+          const linked = await updateProject(token, project.project_id, { draft_id: record.draft_id });
+          setSelectedProject(linked);
+          await refreshProjects(selectedWorkspace.workspace_id);
+        }
+        setDraftId(record.draft_id);
+        setComposition(record.composition);
+        setVersions(null);
+        setActiveTier("balanced");
+        setRenderedAudio(null);
+        setStatus("Draft opened.");
+        await refreshQuality(record.composition);
+      } catch (err) {
+        const errMsg = String(err?.message || err || "").toLowerCase();
+        if (errMsg.includes("404") || errMsg.includes("not found")) {
+          setDraftId("");
+          setComposition(null);
+          if (linkedProject) {
+            const unlinked = await updateProject(token, linkedProject.project_id, { draft_id: null });
+            setSelectedProject(unlinked);
+            await refreshProjects(linkedProject.workspace_id);
+          }
+          setStatus("Draft was not found or belongs to another user. Starting a fresh composition.");
+        } else {
+          throw err;
+        }
       }
-      setDraftId(record.draft_id);
-      setComposition(record.composition);
-      setVersions(null);
-      setActiveTier("balanced");
-      setRenderedAudio(null);
-      setStatus("Draft opened.");
-      await refreshQuality(record.composition);
     });
   }
 
@@ -1496,6 +1620,9 @@ function App() {
           onRenameProject={handleRenameProject}
           theme={theme}
           onToggleTheme={toggleTheme}
+          loadingWorkspaces={loadingWorkspaces}
+          loadingProjects={loadingProjects}
+          loadingDrafts={loadingDrafts}
         />
       ) : (
         <main className="studio-shell">
