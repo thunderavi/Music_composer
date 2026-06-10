@@ -97,6 +97,19 @@ class SongSection(BaseModel):
         return self
 
 
+class MixerChannel(BaseModel):
+    volume: int = Field(default=80, ge=0, le=100)
+    pan: str = Field(default="C", max_length=8)
+
+
+class MixerSettings(BaseModel):
+    drums: MixerChannel = Field(default_factory=lambda: MixerChannel(volume=74, pan="C"))
+    bass: MixerChannel = Field(default_factory=lambda: MixerChannel(volume=82, pan="L8"))
+    harmony: MixerChannel = Field(default_factory=lambda: MixerChannel(volume=68, pan="R6"))
+    melody: MixerChannel = Field(default_factory=lambda: MixerChannel(volume=88, pan="C"))
+    master: MixerChannel = Field(default_factory=lambda: MixerChannel(volume=78, pan="C"))
+
+
 class Composition(BaseModel):
     title: str = Field(..., min_length=2, max_length=80)
     style: str = Field(..., min_length=2, max_length=80)
@@ -105,6 +118,7 @@ class Composition(BaseModel):
     tempo_bpm: int = Field(..., ge=45, le=220)
     time_signature: str = Field(..., pattern=r"^\d+/\d+$")
     sections: List[SongSection] = Field(..., min_length=1, max_length=8)
+    mixer: Optional[MixerSettings] = None
     lyrics: List[str] = Field(default_factory=list, max_length=80)
     style_notes: List[str] = Field(default_factory=list, max_length=12)
     originality_notes: List[str] = Field(default_factory=list, max_length=12)

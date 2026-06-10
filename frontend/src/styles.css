@@ -249,9 +249,10 @@ p {
 }
 
 .landing-shell {
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 440px);
+  grid-template-columns: minmax(0, 1.25fr) minmax(340px, 460px);
   background:
     radial-gradient(circle at 12% 18%, rgba(227, 87, 168, 0.13), transparent 26%),
     radial-gradient(circle at 78% 78%, rgba(19, 214, 200, 0.11), transparent 28%),
@@ -263,21 +264,22 @@ p {
 
 .landing-hero {
   position: relative;
-  min-height: 100vh;
+  height: 100vh;
   overflow: hidden;
-  display: grid;
-  align-content: center;
+  display: flex;
+  flex-direction: column;
   gap: 34px;
-  padding: clamp(28px, 5vw, 70px);
+  padding: clamp(28px, 5vw, 64px);
   border-right: 1px solid #2d3842;
 }
 
 .landing-brand {
-  align-self: start;
+  flex-shrink: 0;
 }
 
 .landing-copy {
   position: relative;
+  margin-top: auto;
   z-index: 1;
   max-width: 760px;
 }
@@ -299,6 +301,7 @@ p {
 
 .landing-console {
   position: relative;
+  margin-bottom: auto;
   z-index: 1;
   width: min(720px, 100%);
   padding: 12px;
@@ -379,22 +382,28 @@ p {
 }
 
 .auth-panel {
-  display: grid;
-  align-content: center;
-  gap: 14px;
-  padding: clamp(20px, 4vw, 44px);
+  height: 100vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0;
+  padding: clamp(24px, 4vw, 48px) clamp(20px, 3.5vw, 42px);
   background:
     linear-gradient(135deg, rgba(255, 255, 255, 0.055), transparent 36%),
-    linear-gradient(180deg, rgba(19, 214, 200, 0.06), transparent 220px),
+    linear-gradient(180deg, rgba(19, 214, 200, 0.07), transparent 240px),
     #111820;
+  border-left: 1px solid rgba(255,255,255,0.06);
 }
 
 .auth-header {
   display: grid;
-  gap: 6px;
-  padding: 14px;
+  gap: 7px;
+  padding: 18px;
+  margin-bottom: 14px;
   background: #0b1015;
   border: 1px solid #2d3842;
+  border-radius: 2px;
 }
 
 .auth-header strong {
@@ -413,8 +422,10 @@ p {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 5px;
   padding: 5px;
+  margin-bottom: 14px;
   background: #0b1015;
   border: 1px solid #2d3842;
+  border-radius: 2px;
 }
 
 .auth-tabs button,
@@ -443,7 +454,8 @@ p {
     linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 80px),
     #151d25;
   border: 1px solid #34404a;
-  box-shadow: var(--shadow);
+  border-radius: 2px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.22), var(--shadow);
 }
 
 /* ==========================================
@@ -2503,10 +2515,9 @@ select {
 }
 
 .mixer-strip {
-  min-height: 210px;
   display: grid;
-  grid-template-rows: auto 1fr 1fr auto;
-  gap: 8px;
+  grid-template-rows: auto 1fr auto;
+  gap: 6px;
   padding: 9px;
   background: #111820;
   border: 1px solid #303c47;
@@ -2516,56 +2527,122 @@ select {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
-  text-transform: uppercase;
-}
-
-.mixer-strip small {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 760;
-}
-
-.mixer-strip > span {
-  min-height: 24px;
-  display: grid;
-  place-items: center;
-  color: var(--soft);
-  background: #0b1015;
-  border: 1px solid #303c47;
   font-size: 11px;
-  font-weight: 840;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--soft);
 }
 
-.meter {
+/* Fader area: meter behind + range input on top */
+.mixer-fader-area {
   position: relative;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.mixer-vol-label {
+  font-size: 10px;
+  font-weight: 860;
+  color: var(--teal);
+  text-align: center;
+  min-width: 0;
+  letter-spacing: 0.02em;
+}
+
+.mixer-fader-wrapper {
+  position: relative;
+  width: 14px;
+  height: 140px;
+}
+
+.mixer-fader-track {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: #080d11;
+  border: 1px solid #2f3a44;
   overflow: hidden;
-  background: #080d11;
-  border: 1px solid #2f3a44;
+  border-radius: 2px;
 }
 
-.meter i {
+.mixer-meter-fill {
   position: absolute;
-  inset: auto 4px 4px;
-  background: linear-gradient(180deg, var(--red), var(--amber) 38%, var(--green) 72%, var(--teal));
-  box-shadow: 0 0 18px rgba(101, 222, 125, 0.18);
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(0deg, var(--teal) 0%, var(--green) 50%, var(--amber) 82%, var(--red) 100%);
+  transition: height 0.1s;
 }
 
-.fader {
-  position: relative;
-  width: 12px;
-  justify-self: center;
-  background: #080d11;
-  border: 1px solid #2f3a44;
-}
-
-.fader i {
+/* Vertical range slider via robust rotation */
+.mixer-fader-input {
   position: absolute;
-  left: -10px;
-  right: -10px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-90deg);
+  width: 140px !important;
+  height: 14px !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  cursor: ew-resize; /* It's rotated, so ns-resize maps to ew-resize natively in some cases, but 'pointer' or 'ew-resize' works */
+  appearance: none;
+  -webkit-appearance: none;
+  opacity: 1;
+  z-index: 2;
+}
+
+.mixer-fader-input::-moz-range-track {
+  background: transparent;
+  width: 100%;
+  height: 100%;
+}
+
+.mixer-fader-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 28px;
   height: 12px;
   background: linear-gradient(180deg, #ecf5ff, #9caebb);
   border: 1px solid #e8f5ff;
+  border-radius: 2px;
+  cursor: ns-resize;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+
+.mixer-fader-input::-moz-range-thumb {
+  width: 28px;
+  height: 12px;
+  background: linear-gradient(180deg, #ecf5ff, #9caebb);
+  border: 1px solid #e8f5ff;
+  border-radius: 2px;
+  cursor: ns-resize;
+}
+
+.mixer-pan-select {
+  width: 100% !important;
+  height: 26px !important;
+  padding: 0 6px !important;
+  background: #0b1015 !important;
+  border: 1px solid #303c47 !important;
+  color: var(--soft) !important;
+  font-size: 11px !important;
+  font-weight: 840 !important;
+  text-align: center;
+  text-align-last: center;
+  cursor: pointer;
+  background-image: none !important;
+}
+
+.mixer-pan-select:focus {
+  border-color: var(--teal) !important;
+  box-shadow: 0 0 0 1px rgba(19, 214, 200, 0.3) !important;
 }
 
 .mixer-strip.teal {
@@ -2865,10 +2942,13 @@ select {
   }
 
   .landing-shell {
+    height: auto;
+    overflow: visible;
     grid-template-columns: 1fr;
   }
 
   .landing-hero {
+    height: auto;
     min-height: auto;
     padding: 24px;
     border-right: 0;
@@ -2888,7 +2968,9 @@ select {
   }
 
   .auth-panel {
+    height: auto;
     min-height: auto;
+    justify-content: flex-start;
     padding: 18px;
   }
 

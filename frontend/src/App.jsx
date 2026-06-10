@@ -477,13 +477,21 @@ function PianoRoll({ composition }) {
   );
 }
 
-function MixerPanel({ composition, renderedAudio }) {
+function MixerPanel({ composition, onVolumeChange, onPanChange }) {
+  const mixer = composition?.mixer || {
+    drums: { volume: 74, pan: "C" },
+    bass: { volume: 82, pan: "L8" },
+    harmony: { volume: 68, pan: "R6" },
+    melody: { volume: 88, pan: "C" },
+    master: { volume: 78, pan: "C" }
+  };
+
   const channels = [
-    { name: "Drums", level: 74, pan: "C", color: "cyan" },
-    { name: "Bass", level: 82, pan: "L8", color: "lime" },
-    { name: "Harmony", level: 68, pan: "R6", color: "violet" },
-    { name: "Melody", level: 88, pan: "C", color: "amber" },
-    { name: "Master", level: renderedAudio ? 92 : 78, pan: "C", color: "master" }
+    { name: "Drums", key: "drums", level: mixer.drums?.volume ?? 74, pan: mixer.drums?.pan ?? "C", color: "cyan" },
+    { name: "Bass", key: "bass", level: mixer.bass?.volume ?? 82, pan: mixer.bass?.pan ?? "L8", color: "lime" },
+    { name: "Harmony", key: "harmony", level: mixer.harmony?.volume ?? 68, pan: mixer.harmony?.pan ?? "R6", color: "violet" },
+    { name: "Melody", key: "melody", level: mixer.melody?.volume ?? 88, pan: mixer.melody?.pan ?? "C", color: "amber" },
+    { name: "Master", key: "master", level: mixer.master?.volume ?? 78, pan: mixer.master?.pan ?? "C", color: "master" }
   ];
 
   return (
@@ -491,21 +499,49 @@ function MixerPanel({ composition, renderedAudio }) {
       <div className="section-toolbar">
         <h2>Mixer</h2>
         <div className="map-legend">
-          <span>{composition.sections.length} sections</span>
-          <span>{composition.tempo_bpm} BPM</span>
+          <span>{composition?.sections?.length || 0} sections</span>
+          <span>{composition?.tempo_bpm || 120} BPM</span>
         </div>
       </div>
       <div className="mixer-strips">
         {channels.map((channel) => (
-          <div className={`mixer-strip ${channel.color}`} key={channel.name}>
+          <div className={`mixer-strip ${channel.color}`} key={channel.key}>
             <strong>{channel.name}</strong>
-            <div className="meter">
-              <i style={{ height: `${channel.level}%` }} />
+            <div className="mixer-fader-area">
+              <span className="mixer-vol-label">{channel.level}</span>
+              <div className="mixer-fader-wrapper">
+                <div className="mixer-fader-track">
+                  <div className="mixer-meter-fill" style={{ height: `${channel.level}%` }} />
+                </div>
+                <input
+                  type="range"
+                  className="mixer-fader-input"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value={channel.level}
+                  onChange={(e) => onVolumeChange(channel.key, Number(e.target.value))}
+                  title={`${channel.name} volume: ${channel.level}`}
+                />
+              </div>
             </div>
-            <div className="fader">
-              <i style={{ bottom: `${channel.level}%` }} />
-            </div>
-            <span>{channel.pan}</span>
+            <select
+              className="mixer-pan-select"
+              value={channel.pan}
+              onChange={(e) => onPanChange(channel.key, e.target.value)}
+            >
+              <option value="L10">L10</option>
+              <option value="L8">L8</option>
+              <option value="L6">L6</option>
+              <option value="L4">L4</option>
+              <option value="L2">L2</option>
+              <option value="C">C</option>
+              <option value="R2">R2</option>
+              <option value="R4">R4</option>
+              <option value="R6">R6</option>
+              <option value="R8">R8</option>
+              <option value="R10">R10</option>
+            </select>
           </div>
         ))}
       </div>
@@ -1542,6 +1578,31 @@ function App() {
     });
   }
 
+  function updateMixer(channelKey, field, value) {
+    setRenderedAudio(null);
+    setComposition((current) => {
+      if (!current) return current;
+      const next = clone(current);
+      if (!next.mixer) {
+        next.mixer = {
+          drums: { volume: 74, pan: "C" },
+          bass: { volume: 82, pan: "L8" },
+          harmony: { volume: 68, pan: "R6" },
+          melody: { volume: 88, pan: "C" },
+          master: { volume: 78, pan: "C" }
+        };
+      }
+      if (!next.mixer[channelKey]) {
+        next.mixer[channelKey] = { volume: 80, pan: "C" };
+      }
+      next.mixer[channelKey][field] = value;
+      if (versions) {
+        setVersions((prev) => ({ ...prev, [activeTier]: next }));
+      }
+      return next;
+    });
+  }
+
   function updateSection(index, updater) {
     setRenderedAudio(null);
     setComposition((current) => {
@@ -2001,7 +2062,12 @@ function App() {
                 </button>
               </section>
 
-              <MixerPanel composition={composition} renderedAudio={renderedAudio} />
+              <MixerPanel 
+                composition={composition} 
+                renderedAudio={renderedAudio} 
+                onVolumeChange={(channelKey, val) => updateMixer(channelKey, "volume", val)}
+                onPanChange={(channelKey, val) => updateMixer(channelKey, "pan", val)}
+              />
 
               {composition.sections.map((section, index) => {
                 const capacity = section.bars * beatsPerBar(composition.time_signature);

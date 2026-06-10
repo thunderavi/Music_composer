@@ -722,11 +722,56 @@ def _composition_to_arranged_midi_bytes(composition: Composition) -> bytes:
     programs = _style_programs(family)
     volumes = _style_volumes(family)
 
-    harmony_events = _control_events(0, program=programs["harmony"], volume=volumes["harmony"], pan=48)
-    bass_events = _control_events(1, program=programs["bass"], volume=volumes["bass"], pan=42)
-    melody_events = _control_events(2, program=programs["melody"], volume=volumes["melody"], pan=74)
-    pad_events = _control_events(3, program=programs["pad"], volume=volumes["pad"], pan=64)
-    drum_events = [(0, 0, bytes([0xB0 + DRUM_CHANNEL, 7, 110])), (0, 1, bytes([0xB0 + DRUM_CHANNEL, 10, 64]))]
+    def parse_pan(pan_str: str) -> int:
+        if not pan_str:
+            return 64
+        pan_str = str(pan_str).strip().upper()
+        if pan_str == "C":
+            return 64
+        match = re.match(r"^([LR])(\d+)$", pan_str)
+        if match:
+            direction, val_str = match.groups()
+            val = int(val_str)
+            offset = int(val * 6.3)
+            if direction == "L":
+                return max(0, 64 - offset)
+            else:
+                return min(127, 64 + offset)
+        return 64
+
+    m = composition.mixer
+    if m:
+        v_harm = int((m.harmony.volume if m.harmony else 80) * 1.27)
+        p_harm = parse_pan(m.harmony.pan if m.harmony else "C")
+        
+        v_bass = int((m.bass.volume if m.bass else 80) * 1.27)
+        p_bass = parse_pan(m.bass.pan if m.bass else "L8")
+        
+        v_mel = int((m.melody.volume if m.melody else 80) * 1.27)
+        p_mel = parse_pan(m.melody.pan if m.melody else "C")
+        
+        v_pad = int((m.harmony.volume if m.harmony else 80) * 0.9 * 1.27)
+        p_pad = parse_pan(m.harmony.pan if m.harmony else "C")
+        
+        v_drum = int((m.drums.volume if m.drums else 80) * 1.27)
+        p_drum = parse_pan(m.drums.pan if m.drums else "C")
+    else:
+        v_harm = volumes["harmony"]
+        p_harm = 48
+        v_bass = volumes["bass"]
+        p_bass = 42
+        v_mel = volumes["melody"]
+        p_mel = 74
+        v_pad = volumes["pad"]
+        p_pad = 64
+        v_drum = 110
+        p_drum = 64
+
+    harmony_events = _control_events(0, program=programs["harmony"], volume=v_harm, pan=p_harm)
+    bass_events = _control_events(1, program=programs["bass"], volume=v_bass, pan=p_bass)
+    melody_events = _control_events(2, program=programs["melody"], volume=v_mel, pan=p_mel)
+    pad_events = _control_events(3, program=programs["pad"], volume=v_pad, pan=p_pad)
+    drum_events = [(0, 0, bytes([0xB0 + DRUM_CHANNEL, 7, v_drum])), (0, 1, bytes([0xB0 + DRUM_CHANNEL, 10, p_drum]))]
 
     _arrange_harmony_and_bass(
         composition,
@@ -1046,36 +1091,37 @@ def _mix_drum_pattern(
     beats_per_bar: float,
     beat_seconds: float,
     sample_rate: int,
+    amplitude_scale: float = 1.0,
 ) -> None:
     beat_count = max(1, int(beats_per_bar))
 
     if family == "edm":
         for beat in range(beat_count):
-            _mix_kick(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.22, sample_rate=sample_rate, amplitude=0.22)
+            _mix_kick(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.22, sample_rate=sample_rate, amplitude=0.22 * amplitude_scale)
         for beat in (1, 3):
             if beat < beat_count:
-                _mix_noise(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.16, sample_rate=sample_rate, amplitude=0.11, seed=beat, body_frequency=190)
+                _mix_noise(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.16, sample_rate=sample_rate, amplitude=0.11 * amplitude_scale, seed=beat, body_frequency=190)
         for step in range(beat_count * 2):
-            _mix_noise(samples, start_seconds=bar_start + (step + 0.5) * beat_seconds / 2, duration_seconds=0.045, sample_rate=sample_rate, amplitude=0.035, seed=step + 50)
+            _mix_noise(samples, start_seconds=bar_start + (step + 0.5) * beat_seconds / 2, duration_seconds=0.045, sample_rate=sample_rate, amplitude=0.035 * amplitude_scale, seed=step + 50)
         return
 
     if family == "rock":
         for beat in (0, 2):
             if beat < beat_count:
-                _mix_kick(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.2, sample_rate=sample_rate, amplitude=0.2)
+                _mix_kick(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.2, sample_rate=sample_rate, amplitude=0.2 * amplitude_scale)
         for beat in (1, 3):
             if beat < beat_count:
-                _mix_noise(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.18, sample_rate=sample_rate, amplitude=0.15, seed=beat + 10, body_frequency=210)
+                _mix_noise(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.18, sample_rate=sample_rate, amplitude=0.15 * amplitude_scale, seed=beat + 10, body_frequency=210)
         for step in range(beat_count * 2):
-            _mix_noise(samples, start_seconds=bar_start + step * beat_seconds / 2, duration_seconds=0.035, sample_rate=sample_rate, amplitude=0.028, seed=step + 90)
+            _mix_noise(samples, start_seconds=bar_start + step * beat_seconds / 2, duration_seconds=0.035, sample_rate=sample_rate, amplitude=0.028 * amplitude_scale, seed=step + 90)
         return
 
     if family in {"lo-fi", "r&b", "jazz"}:
-        _mix_kick(samples, start_seconds=bar_start, duration_seconds=0.18, sample_rate=sample_rate, amplitude=0.11)
+        _mix_kick(samples, start_seconds=bar_start, duration_seconds=0.18, sample_rate=sample_rate, amplitude=0.11 * amplitude_scale)
         if beat_count > 2:
-            _mix_noise(samples, start_seconds=bar_start + 2 * beat_seconds, duration_seconds=0.14, sample_rate=sample_rate, amplitude=0.07, seed=21, body_frequency=160)
+            _mix_noise(samples, start_seconds=bar_start + 2 * beat_seconds, duration_seconds=0.14, sample_rate=sample_rate, amplitude=0.07 * amplitude_scale, seed=21, body_frequency=160)
         for step in range(beat_count):
-            _mix_noise(samples, start_seconds=bar_start + (step + 0.5) * beat_seconds, duration_seconds=0.025, sample_rate=sample_rate, amplitude=0.015, seed=step + 120)
+            _mix_noise(samples, start_seconds=bar_start + (step + 0.5) * beat_seconds, duration_seconds=0.025, sample_rate=sample_rate, amplitude=0.015 * amplitude_scale, seed=step + 120)
 
 
 def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100, stem: str = "full") -> bytes:
@@ -1089,6 +1135,13 @@ def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100,
     total_seconds = sum(_effective_section_beats(section, beats_per_bar) * beat_seconds for section in composition.sections)
     total_samples = max(1, int((total_seconds + 0.25) * sample_rate))
     samples: List[float] = [0.0] * total_samples
+
+    m = composition.mixer
+    vol_drums = (m.drums.volume / 74.0) if (m and m.drums) else 1.0
+    vol_bass = (m.bass.volume / 82.0) if (m and m.bass) else 1.0
+    vol_harmony = (m.harmony.volume / 68.0) if (m and m.harmony) else 1.0
+    vol_melody = (m.melody.volume / 88.0) if (m and m.melody) else 1.0
+    vol_master = (m.master.volume / 78.0) if (m and m.master) else 1.0
 
     cursor = 0.0
     for section in composition.sections:
@@ -1105,6 +1158,7 @@ def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100,
                     beats_per_bar=beats_per_bar,
                     beat_seconds=beat_seconds,
                     sample_rate=sample_rate,
+                    amplitude_scale=vol_drums,
                 )
 
         for symbol, start_beats, duration_beats in _chord_spans(section, beats_per_bar):
@@ -1117,7 +1171,7 @@ def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100,
                     start_seconds=chord_start,
                     duration_seconds=chord_seconds,
                     sample_rate=sample_rate,
-                    amplitude=0.18 if family in {"rock", "edm"} else 0.12,
+                    amplitude=(0.18 if family in {"rock", "edm"} else 0.12) * vol_bass,
                     waveform="saw" if family in {"rock", "edm"} else "triangle",
                 )
 
@@ -1133,7 +1187,7 @@ def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100,
                         start_seconds=chord_start + strum_offset,
                         duration_seconds=chord_seconds * 0.96,
                         sample_rate=sample_rate,
-                        amplitude=chord_amplitude,
+                        amplitude=chord_amplitude * vol_harmony,
                         waveform=chord_waveform,
                     )
 
@@ -1147,7 +1201,7 @@ def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100,
                     start_seconds=melody_cursor,
                     duration_seconds=note_seconds * 0.94,
                     sample_rate=sample_rate,
-                    amplitude=0.16,
+                    amplitude=0.16 * vol_melody,
                     waveform="sine",
                 )
             melody_cursor += note_seconds
@@ -1158,7 +1212,7 @@ def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100,
         _level_full_mix_samples(samples, sample_rate)
 
     peak = max(max(abs(value) for value in samples), 0.001)
-    gain = 0.88 / peak if peak > 0.88 else 1.0
+    gain = (0.88 / peak if peak > 0.88 else 1.0) * vol_master
     pcm = bytearray()
     for value in samples:
         clipped = max(-1.0, min(1.0, value * gain))
