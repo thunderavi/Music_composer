@@ -1,7 +1,8 @@
 import json
+import json_repair
 import logging
 import asyncio
-from typing import Any, Dict
+from typing import Any, Dict, AsyncGenerator
 
 import httpx
 from pydantic import ValidationError
@@ -425,7 +426,14 @@ def extract_json_object(text: str) -> Dict[str, Any]:
     end = cleaned.rfind("}")
     if start == -1 or end == -1 or end <= start:
         raise ValueError("NIM response did not contain a JSON object.")
-    return json.loads(cleaned[start : end + 1])
+    json_str = cleaned[start : end + 1]
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError:
+        repaired = json_repair.repair_json(json_str, return_objects=True)
+        if isinstance(repaired, dict):
+            return repaired
+        raise ValueError("Failed to repair JSON object.")
 
 
 ALLOWED_DURATIONS = [0.25, 0.5, 1, 1.5, 2, 3, 4]
@@ -821,13 +829,11 @@ Error:
         )[:16]
         return composition
 
-    async def compose_langgraph(self, request: ComposeRequest) -> dict[str, Composition]:
-        from .workflow import run_composition_workflow
-        return await run_composition_workflow(request)
+    async def stream_compose_langgraph(self, request: ComposeRequest) -> AsyncGenerator[Dict[str, Any], None]:
+        from .workflow import stream_composition_workflow
+        async for event in stream_composition_workflow(request):
+            yield event
 
-    async def compose(self, request: ComposeRequest) -> Composition:
-        versions = await self.compose_langgraph(request)
-        return versions["balanced"]
 
     async def refine(self, target: str, composition: Composition, instructions: str | None = None) -> Composition:
         content = await self._chat(build_refine_prompt(target, composition, instructions), temperature=0.6)

@@ -19,7 +19,7 @@ class ComposeRequest(BaseModel):
     time_signature: str = Field(default="4/4", pattern=r"^\d+/\d+$")
     creativity: float = Field(default=0.75, ge=0.0, le=1.0)
     instrumentation: Optional[str] = Field(default="piano, bass, light drums", max_length=120)
-    custom_lyrics: Optional[str] = Field(default=None, max_length=1000)
+    custom_lyrics: Optional[str] = Field(default=None, max_length=3000)
 
 
 class MelodyNote(BaseModel):
@@ -100,14 +100,15 @@ class SongSection(BaseModel):
 class MixerChannel(BaseModel):
     volume: int = Field(default=80, ge=0, le=100)
     pan: str = Field(default="C", max_length=8)
+    instrument: str = Field(default="piano", max_length=40)
 
 
 class MixerSettings(BaseModel):
-    drums: MixerChannel = Field(default_factory=lambda: MixerChannel(volume=74, pan="C"))
-    bass: MixerChannel = Field(default_factory=lambda: MixerChannel(volume=82, pan="L8"))
-    harmony: MixerChannel = Field(default_factory=lambda: MixerChannel(volume=68, pan="R6"))
-    melody: MixerChannel = Field(default_factory=lambda: MixerChannel(volume=88, pan="C"))
-    master: MixerChannel = Field(default_factory=lambda: MixerChannel(volume=78, pan="C"))
+    drums: MixerChannel = Field(default_factory=lambda: MixerChannel(volume=74, pan="C", instrument="acoustic_drums"))
+    bass: MixerChannel = Field(default_factory=lambda: MixerChannel(volume=82, pan="L8", instrument="electric_bass"))
+    harmony: MixerChannel = Field(default_factory=lambda: MixerChannel(volume=68, pan="R6", instrument="piano"))
+    melody: MixerChannel = Field(default_factory=lambda: MixerChannel(volume=88, pan="C", instrument="piano_lead"))
+    master: MixerChannel = Field(default_factory=lambda: MixerChannel(volume=78, pan="C", instrument="master"))
 
 
 class Composition(BaseModel):

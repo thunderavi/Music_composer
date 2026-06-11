@@ -276,3 +276,32 @@ def test_optimize_generated_composition_trims_overflowing_melody() -> None:
 
     assert sum(float(item.duration_beats) for item in optimized.sections[0].melody) == 4
     assert not any("overflow" in warning for warning in validate_composition(optimized))
+
+
+def test_custom_mixer_instruments_are_synthesized_and_midi_mapped() -> None:
+    composition = load_golden()
+    from app.schemas import MixerSettings
+    composition.mixer = MixerSettings()
+    # Modify mixer with custom instruments
+    composition.mixer.drums.instrument = "808_drums"
+    composition.mixer.bass.instrument = "sub_bass"
+    composition.mixer.harmony.instrument = "church_organ"
+    composition.mixer.melody.instrument = "flute_lead"
+    
+    # 1. MIDI generation
+    midi = composition_to_midi_bytes(composition)
+    assert midi[:4] == b"MThd"
+    # Channel 0 program change to 19 (church organ) -> \xc0\x13
+    assert b"\xc0\x13" in midi
+    # Channel 1 program change to 39 (sub bass / synth bass 2) -> \xc1\x27
+    assert b"\xc1\x27" in midi
+    # Channel 2 program change to 73 (flute) -> \xc2\x49
+    assert b"\xc2\x49" in midi
+    # Drum track (channel 10, i.e., index 9) program change to 25 (TR-808 kit) -> \xc9\x19
+    assert b"\xc9\x19" in midi
+
+    # 2. WAV generation
+    wav = composition_to_wav_bytes(composition)
+    assert wav[:4] == b"RIFF"
+    assert wav[8:12] == b"WAVE"
+    assert len(wav) > 100_000

@@ -89,6 +89,131 @@ CHORD_PROGRESSIONS: Dict[str, Dict[str, str]] = {
     },
 }
 
+# ── Style Personas ─────────────────────────────────────────────────────────────
+# Each entry injects a strong genre-specific personality into every agent's
+# system prompt, preventing the LLM from defaulting to a generic/mellow style.
+STYLE_PERSONAS: Dict[str, Dict[str, str]] = {
+    "rock": {
+        "identity": "You are a veteran hard rock / classic rock session musician and producer with 30 years in the studio. You have worked with bands like Foo Fighters, AC/DC, and Aerosmith.",
+        "rules": (
+            "GENRE RULES — ROCK (non-negotiable):\n"
+            "- Chords MUST be raw power chords (E5, A5, D5, G5, B5) or simple rock triads (Em, Am, Dm, G, D, A). NO jazz chords (no m7, maj7, 9ths, 11ths, or 13ths) unless for a deliberate contrast.\n"
+            "- Tempo: 120–145 BPM. The rhythm section must hit HARD with downbeats.\n"
+            "- Melody: SHORT, PUNCHY, shoutable phrases. Think stadium hook, not lounge singer.\n"
+            "- Drumkit: crash cymbals on downbeats, driving kick/snare pattern, no brushes.\n"
+            "- Bass: follows root notes, punches in on verse, locks with kick drum.\n"
+            "- Instrumentation: DISTORTED electric guitar (no acoustic feel, no piano vibes, no pads). Amp saturation and grit are required.\n"
+            "- Lyrics: Direct, physical, urgent. Short rhyming lines. NO metaphysical or lo-fi imagery.\n"
+            "- Energy MUST increase from verse to chorus. Chorus is loud and anthemic."
+        ),
+    },
+    "lo-fi": {
+        "identity": "You are a lo-fi chill-hop producer who records in a cozy bedroom studio, influenced by j-jazz and classic soul samples.",
+        "rules": (
+            "GENRE RULES — LO-FI (non-negotiable):\n"
+            "- Chords MUST use extended voicings: Am7, Fmaj7, Cmaj9, Dm9, G7sus4. NO raw power chords.\n"
+            "- Tempo: 70–95 BPM. Relaxed, looping, hypnotic feel.\n"
+            "- Melody: Short, repetitive motifs with lots of rests. Stepwise, gentle, medium-low contour.\n"
+            "- Drums: Muted, slightly off-beat. Vinyl crackle texture. No crash cymbals or aggressive hits.\n"
+            "- Bass: Soft, warm, follows chord roots loosely. Electric bass with gentle attack.\n"
+            "- Instrumentation: Rhodes/electric piano, warm pads, dusty vinyl sound. No distortion.\n"
+            "- Lyrics: Soft visual images, late-night reflection, understated, poetic.\n"
+            "- Energy stays CONSISTENT and calm throughout."
+        ),
+    },
+    "pop": {
+        "identity": "You are a top-tier pop songwriter and producer who has written #1 hits for major pop artists. You specialize in radio-ready songs with huge chorus hooks.",
+        "rules": (
+            "GENRE RULES — POP (non-negotiable):\n"
+            "- Chords: Simple diatonic progressions (I-V-vi-IV or vi-IV-I-V). Sus2 and add9 for color.\n"
+            "- Tempo: 100–130 BPM. Strong, polished groove.\n"
+            "- Melody: Extremely singable and memorable. The chorus hook must be instantly catchy.\n"
+            "- Drums: Punchy, bright, modern. Clear snare on 2 and 4.\n"
+            "- Instrumentation: Bright synth bass, stacked vocal hooks, polished production.\n"
+            "- Lyrics: Direct, emotional, relatable. Short conversational phrases.\n"
+            "- STRONG dynamic contrast between verse (lower energy) and chorus (explosive)."
+        ),
+    },
+    "jazz": {
+        "identity": "You are a jazz pianist and arranger who studied at Berklee and has performed at Blue Note NYC. You live for complex harmony and swing feel.",
+        "rules": (
+            "GENRE RULES — JAZZ (non-negotiable):\n"
+            "- Chords: MUST use extended harmony — maj7, m7, dom7, 9, 11, 13. ii-V-I is your backbone.\n"
+            "- Tempo: 80–140 BPM depending on feel (ballad to swing). Swing 8th-note feel implied.\n"
+            "- Melody: Chromatic approach tones, syncopation, conversational phrases.\n"
+            "- Drums: Brushed snare or light stick, ride cymbal swing pattern, no big rock crashes.\n"
+            "- Instrumentation: Piano voicings, walking bass, horn-like melodic lines. No distorted guitar.\n"
+            "- Lyrics: Wry, intimate, sophisticated imagery. Spacious phrasing.\n"
+            "- Allow space and 'air' in the arrangement — jazz breathes."
+        ),
+    },
+    "edm": {
+        "identity": "You are an EDM producer who makes festival-ready bangers and has releases on major electronic labels. You think in terms of energy builds and drops.",
+        "rules": (
+            "GENRE RULES — EDM (non-negotiable):\n"
+            "- Chords: Simple triads or sus2 for synth pads. Long durations (4-8 beats). Loop-friendly.\n"
+            "- Tempo: 124–140 BPM. Four-on-the-floor kick drum.\n"
+            "- Melody: Short, repetitive topline. Designed for the drop. Very hook-focused.\n"
+            "- Drums: Hard kick, clap/snare on 2&4, hi-hat rolls before drop, sidechain compression.\n"
+            "- Instrumentation: Synth leads, sidechain pads, risers, white-noise sweeps, sub bass drop.\n"
+            "- Lyrics: Chantable short phrases. Motion, lights, release, crowd energy.\n"
+            "- Structure MUST have a clear BUILD and DROP — this is the climax of the track."
+        ),
+    },
+    "r&b": {
+        "identity": "You are an R&B producer and songwriter who has crafted hits in the tradition of Stevie Wonder, D'Angelo, and H.E.R. You specialize in groove and emotion.",
+        "rules": (
+            "GENRE RULES — R&B (non-negotiable):\n"
+            "- Chords: Rich extended harmony — m7, maj7, 9, 11, add9. Smooth voice-leading. NO power chords.\n"
+            "- Tempo: 80–100 BPM. Smooth, deep groove.\n"
+            "- Melody: Fluid, held notes, melisma-friendly. Call-and-response hook shape.\n"
+            "- Drums: Deep pocket groove, soft hi-hat, subtle ghost notes, warm snare.\n"
+            "- Instrumentation: Electric piano/keys, deep sub bass, warm pads, vocal stacks.\n"
+            "- Lyrics: Intimate direct address. Late-night emotion, sensual imagery.\n"
+            "- The GROOVE is paramount. Every element locks into the pocket."
+        ),
+    },
+    "folk": {
+        "identity": "You are an Americana singer-songwriter in the tradition of Bob Dylan, Joni Mitchell, and Phoebe Bridgers. You write honest, story-driven songs.",
+        "rules": (
+            "GENRE RULES — FOLK (non-negotiable):\n"
+            "- Chords: Simple diatonic triads only (G, C, D, Am, Em, F). Sus2 or sus4 for subtle color.\n"
+            "- Tempo: 80–120 BPM. Natural, acoustic feel.\n"
+            "- Melody: Narrative, stepwise. Natural breathing spaces between phrases.\n"
+            "- Drums: Light hand percussion or brushed snare at most. Often just acoustic guitar.\n"
+            "- Instrumentation: Acoustic guitar (primary), maybe light bass, fiddle, harmonica. No synths.\n"
+            "- Lyrics: Storytelling with concrete places, human details, plainspoken images.\n"
+            "- Authentic, unpolished emotion. The song should feel LIVED IN."
+        ),
+    },
+    "cinematic": {
+        "identity": "You are a film score composer who has composed for major Hollywood blockbusters. You specialize in orchestral arrangements that convey massive emotion.",
+        "rules": (
+            "GENRE RULES — CINEMATIC (non-negotiable):\n"
+            "- Chords: Dramatic movement — minor to relative major, suspended tension, dramatic pedal tones.\n"
+            "- Tempo: 60–90 BPM. Stately, epic, cinematic pace.\n"
+            "- Melody: Wide, soaring emotional contour. Sparse — let notes breathe for maximum impact.\n"
+            "- Drums: Taiko/timpani swell, orchestral percussion. No standard rock/pop kit.\n"
+            "- Instrumentation: Full strings (violins, cello), brass stabs, deep low pads, epic choir.\n"
+            "- Lyrics: Minimal or absent. If used: fragmented lyrical poetry for emotional weight.\n"
+            "- The track MUST have a clear emotional arc: tension → release → climax."
+        ),
+    },
+}
+
+
+def get_style_persona(style: str) -> Dict[str, str]:
+    """Return the style-specific persona and rules for agent system prompts."""
+    return STYLE_PERSONAS.get(style.strip().lower(), {
+        "identity": f"You are an expert {style} musician and producer with deep knowledge of the genre.",
+        "rules": (
+            f"GENRE RULES — {style.upper()} (non-negotiable):\n"
+            f"- Every musical decision (chords, tempo, melody, instrumentation, lyrics) MUST clearly sound like {style}.\n"
+            f"- Do NOT default to a generic or mellow style. Be authentic to {style}."
+        ),
+    })
+
+
 class AgentState(TypedDict):
     request: ComposeRequest
     reference_patterns: Optional[Dict[str, Any]]
@@ -517,9 +642,15 @@ CRITICAL OUTPUT RULES:
 
 async def reference_node(state: AgentState) -> Dict[str, Any]:
     logger.info("Running Reference Agent (Ag0)")
+    persona = get_style_persona(state["request"].style)
     llm = get_llm(temperature=0.6)
     prompt = build_reference_prompt(state["request"])
-    system_prompt = "You are an expert musicologist and song structure coordinator. Output JSON only."
+    system_prompt = (
+        f"{persona['identity']}\n\n"
+        f"{persona['rules']}\n\n"
+        "Your current role: Song structure coordinator. Analyze reference songs and create a section plan that is 100% authentic to the genre above.\n"
+        "Output JSON only. Do not include markdown, commentary, or code fences."
+    )
     raw_doc = await _chat_json(llm, system_prompt, prompt, "reference patterns & song plan")
     
     plan = _normalize_plan(raw_doc.get("plan", {}), state["request"])
@@ -530,25 +661,47 @@ async def reference_node(state: AgentState) -> Dict[str, Any]:
 
 async def theorist_node(state: AgentState) -> Dict[str, Any]:
     logger.info("Running Theorist Agent (Ag1)")
+    persona = get_style_persona(state["request"].style)
     llm = get_llm(temperature=state["request"].creativity)
     prompt = build_theorist_prompt(state["request"], state)
-    system_prompt = "You are a expert music theory agent. Write chords. Output JSON only."
+    system_prompt = (
+        f"{persona['identity']}\n\n"
+        f"{persona['rules']}\n\n"
+        "Your current role: Music theory and harmony expert. Write chord progressions that are unmistakably in this genre. "
+        "A listener should be able to name the genre just from the chords alone.\n"
+        "Output JSON only. Do not include markdown, commentary, or code fences."
+    )
     raw_doc = await _chat_json(llm, system_prompt, prompt, "theorist chords")
     return {"chords": raw_doc}
 
 async def composer_node(state: AgentState) -> Dict[str, Any]:
     logger.info("Running Composer Agent (Ag2)")
+    persona = get_style_persona(state["request"].style)
     llm = get_llm(temperature=state["request"].creativity)
     prompt = build_composer_prompt(state["request"], state)
-    system_prompt = "You are an expert composer agent. Write symbolic melodies. Output JSON only."
+    system_prompt = (
+        f"{persona['identity']}\n\n"
+        f"{persona['rules']}\n\n"
+        "Your current role: Lead melodist. Write a melody that feels COMPLETELY different from any other genre. "
+        "The phrasing, contour, and note density MUST match the genre above.\n"
+        "Output JSON only. Do not include markdown, commentary, or code fences."
+    )
     raw_doc = await _chat_json(llm, system_prompt, prompt, "composer melody")
     return {"melody": raw_doc}
 
 async def lyricist_node(state: AgentState) -> Dict[str, Any]:
     logger.info("Running Lyricist Agent (Ag3)")
+    persona = get_style_persona(state["request"].style)
     llm = get_llm(temperature=state["request"].creativity)
     prompt = build_lyricist_prompt(state["request"], state)
-    system_prompt = "You are a professional lyricist. Write or structure song lyrics. Output JSON only."
+    system_prompt = (
+        f"{persona['identity']}\n\n"
+        f"{persona['rules']}\n\n"
+        "Your current role: Lyricist. Write lyrics that are ONLY appropriate for this specific genre. "
+        "No lo-fi mellow imagery for a rock song. No aggressive language for a lo-fi song. "
+        "The lyrics must perfectly match the genre identity, mood, and theme.\n"
+        "Output JSON only. Do not include markdown, commentary, or code fences."
+    )
     raw_doc = await _chat_json(llm, system_prompt, prompt, "lyricist lyrics")
     
     if state["request"].custom_lyrics and state["request"].custom_lyrics.strip():
@@ -568,11 +721,19 @@ async def lyricist_node(state: AgentState) -> Dict[str, Any]:
 
 async def improvisor_node(state: AgentState) -> Dict[str, Any]:
     logger.info("Running Improvisor Agent (Ag4)")
+    persona = get_style_persona(state["request"].style)
     llm = get_llm(temperature=max(0.4, state["request"].creativity - 0.05))
     prompt = build_improvisor_prompt(state["request"], state)
-    system_prompt = "You are a creative session musician. Embellish and improvise on melody and chords. Output JSON only."
+    system_prompt = (
+        f"{persona['identity']}\n\n"
+        f"{persona['rules']}\n\n"
+        "Your current role: Session improviser and arranger. Add fills, embellishments, and bass/drum guidance that is "
+        "100% specific to this genre. Your bassline and drum pattern must sound NOTHING like any other genre.\n"
+        "Output JSON only. Do not include markdown, commentary, or code fences."
+    )
     raw_doc = await _chat_json(llm, system_prompt, prompt, "improvisor arrangement")
     return {"arrangement": raw_doc}
+
 
 async def _compile_tier(
     state: AgentState,
@@ -583,9 +744,16 @@ async def _compile_tier(
     run_reviews: bool = True,
 ) -> Composition:
     logger.info("Director compiling tier: %s", tier)
+    persona = get_style_persona(state["request"].style)
     llm = get_llm(temperature=temperature)
     prompt = build_director_prompt(state["request"], state, tier, lyrics_source)
-    system_prompt = f"You are the Director Agent ({tier.upper()} mode). Assemble the final composition. Output JSON only."
+    system_prompt = (
+        f"{persona['identity']}\n\n"
+        f"{persona['rules']}\n\n"
+        f"Your current role: Director Agent ({tier.upper()} mode). Assemble the final complete composition JSON. "
+        f"Every field (chords, melody, lyrics, instrumentation, drum_pattern, bassline) MUST reflect the genre rules above. "
+        f"Output JSON only. Do not include markdown, commentary, or code fences."
+    )
     
     raw_doc = await _chat_json(llm, system_prompt, prompt, f"director {tier} composition")
     
@@ -700,7 +868,9 @@ def create_workflow() -> StateGraph:
 # Compile Workflow Graph
 workflow_app = create_workflow().compile()
 
-async def run_composition_workflow(request: ComposeRequest) -> Dict[str, Composition]:
+from typing import AsyncGenerator
+
+async def stream_composition_workflow(request: ComposeRequest) -> AsyncGenerator[Dict[str, Any], None]:
     initial_state = {
         "request": request,
         "reference_patterns": None,
@@ -715,9 +885,58 @@ async def run_composition_workflow(request: ComposeRequest) -> Dict[str, Composi
         "wild_composition": None,
     }
     
-    final_state = await workflow_app.ainvoke(initial_state)
-    return {
-        "safe": final_state["safe_composition"],
-        "balanced": final_state["balanced_composition"],
-        "wild": final_state["wild_composition"]
+    agent_names = {
+        "reference": "Coordinator Agent",
+        "theorist": "Theorist Agent",
+        "composer": "Composer Agent",
+        "lyricist": "Lyricist Agent",
+        "improvisor": "Improvisor Agent",
+        "director": "Director Agent"
+    }
+
+    quotes = {
+        "reference": "Analyzing structural references...",
+        "theorist": "Designing chord progressions...",
+        "composer": "Writing the melody...",
+        "lyricist": "Generating lyrics...",
+        "improvisor": "Adding variations and fills...",
+        "director": "Arranging and producing final stems..."
+    }
+
+    yield {"type": "progress", "agent": agent_names["reference"], "quote": quotes["reference"], "node": "reference"}
+
+    final_state_data = {}
+    async for event in workflow_app.astream(initial_state, stream_mode="updates"):
+        node_name = list(event.keys())[0]
+        
+        if node_name == "director":
+            final_state_data = event["director"]
+            break
+            
+        next_node_map = {
+            "reference": "theorist",
+            "theorist": "composer",
+            "composer": "lyricist",
+            "lyricist": "improvisor",
+            "improvisor": "director"
+        }
+        next_node = next_node_map.get(node_name)
+        if next_node:
+            yield {
+                "type": "progress",
+                "agent": agent_names[next_node],
+                "quote": quotes[next_node],
+                "node": next_node
+            }
+
+    def _safe_dump(comp: Optional[Composition]):
+        return comp.model_dump() if comp else None
+
+    yield {
+        "type": "complete",
+        "compositions": {
+            "safe": _safe_dump(final_state_data.get("safe_composition")),
+            "balanced": _safe_dump(final_state_data.get("balanced_composition")),
+            "wild": _safe_dump(final_state_data.get("wild_composition"))
+        }
     }

@@ -135,10 +135,9 @@ export async function getProvider() {
   return response.json();
 }
 
-export async function composeSong(token, input) {
+export async function composeSong(token, input, onProgress) {
   const body = {
     ...input,
-    // Convert empty string to null so FastAPI Optional[str] validates correctly
     custom_lyrics: input.custom_lyrics?.trim() || null
   };
   const response = await fetch(`${API_BASE_URL}/compose`, {
@@ -146,10 +145,47 @@ export async function composeSong(token, input) {
     headers: { "Content-Type": "application/json", ...authHeaders(token) },
     body: JSON.stringify(body)
   });
+
   if (!response.ok) {
     throw new Error(await parseError(response));
   }
-  return response.json();
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const jsonStr = line.substring(6);
+        try {
+          const data = JSON.parse(jsonStr);
+          if (data.error) {
+            throw new Error(data.error);
+          }
+          if (data.type === "complete") {
+            return data;
+          } else if (data.type === "progress" && onProgress) {
+            onProgress(data);
+          }
+        } catch (err) {
+          if (err.message && err.message !== "Unexpected end of JSON input" && err.message !== "Unexpected token") {
+             throw err; // Real error from server
+          }
+          console.error("Failed to parse SSE line:", jsonStr, err);
+        }
+      }
+    }
+  }
+
+  throw new Error("Stream closed before completion.");
 }
 
 export async function refineSong(token, target, composition, instructions = "") {

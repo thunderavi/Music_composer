@@ -10,3 +10,4 @@ pytest>=9.0.0
 langchain-core>=0.2.0
 langchain-openai>=0.1.0
 langgraph>=0.0.60
+json-repair>=0.30.0

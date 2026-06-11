@@ -1,3 +1,4 @@
+import shutil
 from functools import lru_cache
 from pathlib import Path
 from typing import List
@@ -76,6 +77,9 @@ class Settings(BaseSettings):
         if self.fluidsynth_path:
             path = Path(self.fluidsynth_path)
             return str(path if path.is_absolute() else ENV_FILE.parent / path)
+        system_path = shutil.which("fluidsynth")
+        if system_path:
+            return system_path
         bundled = ENV_FILE.parent / "tools" / "fluidsynth" / "dist" / "fluidsynth-v2.5.4-win10-x64-cpp11" / "bin" / "fluidsynth.exe"
         return str(bundled) if bundled.exists() else ""
 

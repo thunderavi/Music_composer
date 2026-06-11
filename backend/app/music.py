@@ -368,6 +368,7 @@ STYLE_PROGRAMS = {
     "cinematic": {"harmony": 48, "bass": 43, "melody": 50, "pad": 89},
     "r&b": {"harmony": 4, "bass": 38, "melody": 54, "pad": 89},
     "lo-fi": {"harmony": 4, "bass": 33, "melody": 11, "pad": 89},
+    "pop": {"harmony": 81, "bass": 38, "melody": 80, "pad": 88},
 }
 
 STYLE_VOLUME = {
@@ -378,6 +379,94 @@ STYLE_VOLUME = {
     "cinematic": {"harmony": 94, "bass": 108, "melody": 96, "pad": 102},
     "r&b": {"harmony": 92, "bass": 106, "melody": 104, "pad": 88},
     "lo-fi": {"harmony": 90, "bass": 96, "melody": 92, "pad": 82},
+    "pop": {"harmony": 96, "bass": 104, "melody": 110, "pad": 84},
+}
+
+STYLE_INSTRUMENTS = {
+    "rock": {
+        "drums": "acoustic_drums",
+        "bass": "electric_bass",
+        "harmony": "distorted_guitar",
+        "melody": "electric_guitar",
+    },
+    "edm": {
+        "drums": "electronic_drums",
+        "bass": "synth_bass",
+        "harmony": "synth_pad",
+        "melody": "piano_lead",
+    },
+    "jazz": {
+        "drums": "brush_drums",
+        "bass": "acoustic_bass",
+        "harmony": "piano",
+        "melody": "piano_lead",
+    },
+    "folk": {
+        "drums": "acoustic_drums",
+        "bass": "acoustic_bass",
+        "harmony": "acoustic_guitar",
+        "melody": "violin_lead",
+    },
+    "cinematic": {
+        "drums": "orchestral_timpani",
+        "bass": "acoustic_bass",
+        "harmony": "synth_pad",
+        "melody": "violin_lead",
+    },
+    "r&b": {
+        "drums": "808_drums",
+        "bass": "electric_bass",
+        "harmony": "electric_piano",
+        "melody": "vocal_lead",
+    },
+    "lo-fi": {
+        "drums": "808_drums",
+        "bass": "sub_bass",
+        "harmony": "electric_piano",
+        "melody": "piano_lead",
+    },
+    "pop": {
+        "drums": "electronic_drums",
+        "bass": "electric_bass",
+        "harmony": "piano",
+        "melody": "piano_lead",
+    },
+}
+
+INSTRUMENT_MIDI_PROGRAMS = {
+    # Harmony
+    "piano": 0,            # Acoustic Grand Piano
+    "acoustic_piano": 0,   # Acoustic Grand Piano
+    "electric_piano": 4,   # Rhodes Electric Piano
+    "acoustic_guitar": 24, # Acoustic Guitar (nylon)
+    "electric_guitar": 27, # Electric Guitar (clean)
+    "distorted_guitar": 30, # Distortion Guitar
+    "synth_pad": 89,       # Pad 2 (warm)
+    "church_organ": 19,    # Church Organ
+    
+    # Bass
+    "acoustic_bass": 32,   # Acoustic Bass
+    "electric_bass": 33,   # Electric Bass (finger)
+    "slap_bass": 36,       # Slap Bass 1
+    "synth_bass": 38,      # Synth Bass 1
+    "sub_bass": 39,        # Synth Bass 2
+    
+    # Melody
+    "piano_lead": 0,       # Acoustic Grand Piano
+    "sine_lead": 80,       # Lead 1 (square/sine)
+    "saw_lead": 81,        # Lead 2 (saw)
+    "square_lead": 80,     # Lead 1 (square)
+    "vocal_lead": 54,      # Voice Oohs
+    "flute_lead": 73,      # Flute
+    "violin_lead": 40,     # Violin
+}
+
+DRUM_MIDI_PROGRAMS = {
+    "acoustic_drums": 0,     # Standard Kit (Channel 10)
+    "electric_drums": 24,    # Electronic Kit
+    "808_drums": 25,         # TR-808 Kit
+    "brush_drums": 40,       # Brush Kit
+    "orchestral_timpani": 48, # Orchestral Kit
 }
 
 
@@ -743,35 +832,55 @@ def _composition_to_arranged_midi_bytes(composition: Composition) -> bytes:
     if m:
         v_harm = int((m.harmony.volume if m.harmony else 80) * 1.27)
         p_harm = parse_pan(m.harmony.pan if m.harmony else "C")
+        prog_harm = INSTRUMENT_MIDI_PROGRAMS.get(m.harmony.instrument if m.harmony else "piano", 0)
         
         v_bass = int((m.bass.volume if m.bass else 80) * 1.27)
         p_bass = parse_pan(m.bass.pan if m.bass else "L8")
+        prog_bass = INSTRUMENT_MIDI_PROGRAMS.get(m.bass.instrument if m.bass else "electric_bass", 33)
         
         v_mel = int((m.melody.volume if m.melody else 80) * 1.27)
         p_mel = parse_pan(m.melody.pan if m.melody else "C")
+        prog_mel = INSTRUMENT_MIDI_PROGRAMS.get(m.melody.instrument if m.melody else "piano_lead", 0)
         
         v_pad = int((m.harmony.volume if m.harmony else 80) * 0.9 * 1.27)
         p_pad = parse_pan(m.harmony.pan if m.harmony else "C")
+        prog_pad = 89
         
         v_drum = int((m.drums.volume if m.drums else 80) * 1.27)
         p_drum = parse_pan(m.drums.pan if m.drums else "C")
+        prog_drum = DRUM_MIDI_PROGRAMS.get(m.drums.instrument if m.drums else "acoustic_drums", 0)
     else:
         v_harm = volumes["harmony"]
         p_harm = 48
+        prog_harm = programs["harmony"]
+        
         v_bass = volumes["bass"]
         p_bass = 42
+        prog_bass = programs["bass"]
+        
         v_mel = volumes["melody"]
         p_mel = 74
+        prog_mel = programs["melody"]
+        
         v_pad = volumes["pad"]
         p_pad = 64
+        prog_pad = programs["pad"]
+        
         v_drum = 110
         p_drum = 64
+        prog_drum = 0
 
-    harmony_events = _control_events(0, program=programs["harmony"], volume=v_harm, pan=p_harm)
-    bass_events = _control_events(1, program=programs["bass"], volume=v_bass, pan=p_bass)
-    melody_events = _control_events(2, program=programs["melody"], volume=v_mel, pan=p_mel)
-    pad_events = _control_events(3, program=programs["pad"], volume=v_pad, pan=p_pad)
-    drum_events = [(0, 0, bytes([0xB0 + DRUM_CHANNEL, 7, v_drum])), (0, 1, bytes([0xB0 + DRUM_CHANNEL, 10, p_drum]))]
+    harmony_events = _control_events(0, program=prog_harm, volume=v_harm, pan=p_harm)
+    bass_events = _control_events(1, program=prog_bass, volume=v_bass, pan=p_bass)
+    melody_events = _control_events(2, program=prog_mel, volume=v_mel, pan=p_mel)
+    pad_events = _control_events(3, program=prog_pad, volume=v_pad, pan=p_pad)
+    
+    # Send program change on Channel 10 for custom drum kits
+    drum_events = [
+        (0, 0, bytes([0xB0 + DRUM_CHANNEL, 7, v_drum])), 
+        (0, 1, bytes([0xB0 + DRUM_CHANNEL, 10, p_drum])),
+        (0, 2, bytes([0xC0 + DRUM_CHANNEL, prog_drum]))
+    ]
 
     _arrange_harmony_and_bass(
         composition,
@@ -801,19 +910,36 @@ def build_score(composition: Composition) -> stream.Score:
     score.insert(0, meter.TimeSignature(composition.time_signature))
 
     family = _style_family(composition)
+    m = composition.mixer
     chord_part = stream.Part(id="chords")
-    if family == "rock":
-        chord_part.insert(0, instrument.ElectricGuitar())
-    elif family == "folk":
-        chord_part.insert(0, instrument.AcousticGuitar())
-    elif family in {"r&b", "lo-fi"}:
+    chord_inst = m.harmony.instrument if (m and m.harmony) else "piano"
+    if chord_inst == "electric_piano":
         chord_part.insert(0, instrument.ElectricPiano())
+    elif chord_inst == "acoustic_guitar":
+        chord_part.insert(0, instrument.AcousticGuitar())
+    elif chord_inst in {"electric_guitar", "distorted_guitar"}:
+        chord_part.insert(0, instrument.ElectricGuitar())
+    elif chord_inst == "church_organ":
+        chord_part.insert(0, instrument.ChurchOrgan())
     else:
         chord_part.insert(0, instrument.Piano())
+
     bass_part = stream.Part(id="bass")
-    bass_part.insert(0, instrument.ElectricBass() if family in {"rock", "edm", "r&b"} else instrument.AcousticBass())
+    bass_inst = m.bass.instrument if (m and m.bass) else "electric_bass"
+    if bass_inst == "acoustic_bass":
+        bass_part.insert(0, instrument.AcousticBass())
+    else:
+        bass_part.insert(0, instrument.ElectricBass())
+
     melody_part = stream.Part(id="melody")
-    melody_part.insert(0, instrument.ElectricGuitar() if family == "rock" else instrument.Vocalist())
+    melody_inst = m.melody.instrument if (m and m.melody) else "piano_lead"
+    if melody_inst == "flute_lead":
+        melody_part.insert(0, instrument.Flute())
+    elif melody_inst == "violin_lead":
+        melody_part.insert(0, instrument.Violin())
+    else:
+        melody_part.insert(0, instrument.Vocalist())
+
     drum_part = stream.Part(id="drums")
     drum_part.insert(0, instrument.Percussion())
 
@@ -934,7 +1060,18 @@ def _mix_tone(
 
     attack = min(int(0.025 * sample_rate), max(1, (end - start) // 4))
     release = min(int(0.08 * sample_rate), max(1, (end - start) // 3))
+    
+    # Custom attack/release envelopes for specific instruments
+    if waveform in {"piano", "acoustic_piano", "piano_lead"}:
+        attack = min(int(0.01 * sample_rate), max(1, (end - start) // 10))
+    elif waveform in {"synth_pad"}:
+        attack = min(int(0.35 * sample_rate), max(1, (end - start) // 3))
+        release = min(int(0.42 * sample_rate), max(1, (end - start) // 2))
+    elif waveform in {"violin_lead", "violin"}:
+        attack = min(int(0.15 * sample_rate), max(1, (end - start) // 4))
+
     two_pi_frequency = 2 * math.pi * frequency
+    last_val = 0.0
 
     for index in range(start, end):
         local = index - start
@@ -945,8 +1082,31 @@ def _mix_tone(
         if remaining < release:
             envelope = min(envelope, remaining / release)
 
+        # Decay envelope for pluck/piano instruments
+        t_local = local / sample_rate
+        if waveform in {"piano", "acoustic_piano", "piano_lead"}:
+            envelope *= math.exp(-2.2 * t_local)
+        elif waveform in {"electric_piano"}:
+            envelope *= math.exp(-1.8 * t_local)
+        elif waveform in {"acoustic_guitar"}:
+            envelope *= math.exp(-3.5 * t_local)
+        elif waveform in {"slap_bass"}:
+            envelope *= math.exp(-4.2 * t_local)
+        elif waveform in {"electric_bass"}:
+            envelope *= math.exp(-2.8 * t_local)
+        elif waveform in {"sub_bass"}:
+            envelope *= math.exp(-1.5 * t_local)
+
         t = index / sample_rate
         phase = two_pi_frequency * t
+        
+        # Pitch vibrato (LFO) for expressive leads
+        if waveform in {"violin_lead", "vocal_lead", "vocal"}:
+            phase += 0.05 * math.sin(2 * math.pi * 6.0 * t)
+        elif waveform in {"flute_lead"}:
+            phase += 0.02 * math.sin(2 * math.pi * 5.5 * t)
+
+        # Instrument Synthesizer Generators
         if waveform == "triangle":
             value = _triangle_wave(phase)
         elif waveform == "saw":
@@ -956,6 +1116,53 @@ def _mix_tone(
         elif waveform == "distorted":
             raw = math.sin(phase) + 0.42 * math.sin(phase * 2) + 0.18 * math.sin(phase * 3)
             value = math.tanh(raw * 2.2)
+        elif waveform in {"piano", "acoustic_piano", "piano_lead"}:
+            value = (
+                math.sin(phase) 
+                + 0.45 * math.sin(phase * 2) 
+                + 0.22 * math.sin(phase * 3) 
+                + 0.1 * math.sin(phase * 4)
+            )
+        elif waveform == "electric_piano":
+            tremolo = 1.0 + 0.18 * math.sin(2 * math.pi * 5.8 * t)
+            value = (math.sin(phase) + 0.35 * _triangle_wave(phase * 2)) * tremolo
+        elif waveform == "acoustic_guitar":
+            value = _triangle_wave(phase) + 0.25 * _saw_wave(phase * 2)
+        elif waveform in {"electric_guitar", "distorted_guitar"}:
+            raw = _saw_wave(phase) + 0.3 * _saw_wave(phase * 2)
+            gain = 4.8 if waveform == "distorted_guitar" else 2.2
+            raw_clipped = math.tanh(raw * gain)
+            value = 0.35 * raw_clipped + 0.65 * last_val
+            last_val = value
+        elif waveform == "synth_pad":
+            phase_detune1 = 2 * math.pi * (frequency * 1.006) * t
+            phase_detune2 = 2 * math.pi * (frequency * 0.994) * t
+            value = 0.5 * _triangle_wave(phase) + 0.25 * _saw_wave(phase_detune1) + 0.25 * _saw_wave(phase_detune2)
+        elif waveform == "church_organ":
+            value = (
+                0.5 * math.sin(phase) 
+                + 0.35 * math.sin(phase * 2) 
+                + 0.25 * math.sin(phase * 3) 
+                + 0.4 * math.sin(phase * 0.5)
+            )
+        elif waveform == "flute_lead":
+            breath = _noise_value(index, 42) * 0.12 * envelope
+            value = math.sin(phase) + breath
+        elif waveform == "violin_lead":
+            value = _saw_wave(phase) + 0.15 * _triangle_wave(phase * 2)
+        elif waveform == "vocal_lead":
+            value = _triangle_wave(phase) + 0.4 * math.sin(phase * 2)
+        elif waveform == "sub_bass":
+            value = math.sin(phase)
+        elif waveform == "synth_bass":
+            value = 0.7 * (1.0 if math.sin(phase) >= 0 else -1.0) + 0.3 * _saw_wave(phase)
+        elif waveform == "electric_bass":
+            value = _saw_wave(phase)
+        elif waveform == "acoustic_bass":
+            value = _triangle_wave(phase)
+        elif waveform == "slap_bass":
+            click = (1.0 if math.sin(phase * 3) >= 0 else -1.0) * math.exp(-30.0 * t_local) * 0.45
+            value = _saw_wave(phase) + click
         else:
             value = math.sin(phase) + 0.22 * math.sin(phase * 2)
 
@@ -1055,38 +1262,78 @@ def _level_full_mix_samples(samples: List[float], sample_rate: int) -> None:
 
 def _style_family(composition: Composition) -> str:
     style = composition.style.strip().lower()
+    # Exact match first
     if style in {"rock", "edm", "jazz", "folk", "cinematic", "r&b", "lo-fi"}:
         return style
-    if style in {"lofi", "lo fi"}:
-        return "lo-fi"
-    if style in {"rnb", "r and b"}:
-        return "r&b"
-    text = " ".join(
-        [
-            composition.style,
-            composition.mood,
-            " ".join(composition.style_notes),
-        ]
-    ).lower()
-    if "rock" in text or "guitar" in text or "riff" in text:
+    # Common aliases
+    alias_map = {
+        "lofi": "lo-fi",
+        "lo fi": "lo-fi",
+        "lo-fi hip hop": "lo-fi",
+        "chillhop": "lo-fi",
+        "rnb": "r&b",
+        "r and b": "r&b",
+        "rhythm and blues": "r&b",
+        "soul": "r&b",
+        "hip hop": "r&b",
+        "hip-hop": "r&b",
+        "trap": "r&b",
+        "rap": "r&b",
+        "hood": "r&b",
+        "pop": "pop",
+        "classical": "cinematic",
+        "orchestral": "cinematic",
+        "country": "folk",
+        "americana": "folk",
+        "bluegrass": "folk",
+        "blues": "rock",
+        "punk": "rock",
+        "metal": "rock",
+        "classic rock": "rock",
+        "hard rock": "rock",
+        "alternative": "rock",
+        "grunge": "rock",
+        "indie rock": "rock",
+        "indie": "rock",
+        "electronica": "edm",
+        "house": "edm",
+        "techno": "edm",
+        "trance": "edm",
+        "dubstep": "edm",
+        "dance": "edm",
+    }
+    if style in alias_map:
+        return alias_map[style]
+    # Keyword scan as last resort
+    text = " ".join([
+        composition.style,
+        composition.mood,
+        " ".join(composition.style_notes),
+    ]).lower()
+    if any(w in text for w in ("rock", "guitar", "riff", "punk", "metal", "grunge")):
         return "rock"
-    if "edm" in text or "drop" in text or "sidechain" in text:
+    if any(w in text for w in ("edm", "drop", "sidechain", "house", "techno", "rave")):
         return "edm"
-    if "jazz" in text or "swing" in text or "walking" in text:
+    if any(w in text for w in ("jazz", "swing", "walking bass", "bebop")):
         return "jazz"
-    if "folk" in text or "acoustic" in text:
+    if any(w in text for w in ("folk", "acoustic", "country", "bluegrass")):
         return "folk"
-    if "cinematic" in text or "strings" in text:
+    if any(w in text for w in ("cinematic", "strings", "orchestral", "epic")):
         return "cinematic"
-    if "r&b" in text or "groove" in text:
+    if any(w in text for w in ("r&b", "groove", "soul", "hip hop", "trap", "rnb")):
         return "r&b"
+    if any(w in text for w in ("chill", "lofi", "lo-fi", "vinyl", "mellow", "relaxed")):
+        return "lo-fi"
+    if any(w in text for w in ("pop", "radio", "catchy", "hook")):
+        return "pop"
+    # No match — return the style as-is, let the caller use the lo-fi fallback in STYLE_PROGRAMS
     return "lo-fi"
 
 
 def _mix_drum_pattern(
     samples: List[float],
     *,
-    family: str,
+    instrument: str,
     bar_start: float,
     beats_per_bar: float,
     beat_seconds: float,
@@ -1095,33 +1342,73 @@ def _mix_drum_pattern(
 ) -> None:
     beat_count = max(1, int(beats_per_bar))
 
-    if family == "edm":
+    if instrument == "electric_drums":
         for beat in range(beat_count):
-            _mix_kick(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.22, sample_rate=sample_rate, amplitude=0.22 * amplitude_scale)
+            _mix_kick(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.20, sample_rate=sample_rate, amplitude=0.22 * amplitude_scale)
         for beat in (1, 3):
             if beat < beat_count:
-                _mix_noise(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.16, sample_rate=sample_rate, amplitude=0.11 * amplitude_scale, seed=beat, body_frequency=190)
+                _mix_noise(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.15, sample_rate=sample_rate, amplitude=0.13 * amplitude_scale, seed=beat, body_frequency=230)
         for step in range(beat_count * 2):
-            _mix_noise(samples, start_seconds=bar_start + (step + 0.5) * beat_seconds / 2, duration_seconds=0.045, sample_rate=sample_rate, amplitude=0.035 * amplitude_scale, seed=step + 50)
+            _mix_noise(samples, start_seconds=bar_start + (step + 0.5) * beat_seconds / 2, duration_seconds=0.04, sample_rate=sample_rate, amplitude=0.035 * amplitude_scale, seed=step + 50)
         return
 
-    if family == "rock":
-        for beat in (0, 2):
-            if beat < beat_count:
-                _mix_kick(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.2, sample_rate=sample_rate, amplitude=0.2 * amplitude_scale)
+    if instrument == "808_drums":
+        for beat in range(beat_count):
+            start_idx = max(0, int((bar_start + beat * beat_seconds) * sample_rate))
+            end_idx = min(len(samples), int((bar_start + beat * beat_seconds + 0.45) * sample_rate))
+            length = end_idx - start_idx
+            phase = 0.0
+            for index in range(start_idx, end_idx):
+                progress = (index - start_idx) / max(1, length)
+                frequency = 85 - 50 * progress
+                phase += 2 * math.pi * frequency / sample_rate
+                envelope = (1 - progress) ** 1.8
+                samples[index] += math.sin(phase) * 0.24 * amplitude_scale * envelope
         for beat in (1, 3):
             if beat < beat_count:
-                _mix_noise(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.18, sample_rate=sample_rate, amplitude=0.15 * amplitude_scale, seed=beat + 10, body_frequency=210)
+                clap_start = bar_start + beat * beat_seconds
+                for trigger in range(3):
+                    _mix_noise(samples, start_seconds=clap_start + trigger * 0.012, duration_seconds=0.015, sample_rate=sample_rate, amplitude=0.14 * amplitude_scale, seed=beat + trigger, body_frequency=180)
+                _mix_noise(samples, start_seconds=clap_start + 0.036, duration_seconds=0.16, sample_rate=sample_rate, amplitude=0.11 * amplitude_scale, seed=beat + 10, body_frequency=180)
         for step in range(beat_count * 2):
-            _mix_noise(samples, start_seconds=bar_start + step * beat_seconds / 2, duration_seconds=0.035, sample_rate=sample_rate, amplitude=0.028 * amplitude_scale, seed=step + 90)
+            _mix_noise(samples, start_seconds=bar_start + step * beat_seconds / 2, duration_seconds=0.018, sample_rate=sample_rate, amplitude=0.04 * amplitude_scale, seed=step + 200)
         return
 
-    if family in {"lo-fi", "r&b", "jazz"}:
-        _mix_kick(samples, start_seconds=bar_start, duration_seconds=0.18, sample_rate=sample_rate, amplitude=0.11 * amplitude_scale)
-        if beat_count > 2:
-            _mix_noise(samples, start_seconds=bar_start + 2 * beat_seconds, duration_seconds=0.14, sample_rate=sample_rate, amplitude=0.07 * amplitude_scale, seed=21, body_frequency=160)
-        for step in range(beat_count):
-            _mix_noise(samples, start_seconds=bar_start + (step + 0.5) * beat_seconds, duration_seconds=0.025, sample_rate=sample_rate, amplitude=0.015 * amplitude_scale, seed=step + 120)
+    if instrument == "brush_drums":
+        for beat in range(beat_count):
+            if beat % 2 == 0:
+                _mix_kick(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.14, sample_rate=sample_rate, amplitude=0.08 * amplitude_scale)
+        for beat in (1, 3):
+            if beat < beat_count:
+                _mix_noise(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.25, sample_rate=sample_rate, amplitude=0.04 * amplitude_scale, seed=beat + 30, body_frequency=120)
+        for step in range(beat_count * 2):
+            _mix_noise(samples, start_seconds=bar_start + step * beat_seconds / 2, duration_seconds=0.15, sample_rate=sample_rate, amplitude=0.012 * amplitude_scale, seed=step + 150)
+        return
+
+    if instrument == "orchestral_timpani":
+        timpani_start = bar_start
+        start_idx = max(0, int(timpani_start * sample_rate))
+        end_idx = min(len(samples), int((timpani_start + 0.8) * sample_rate))
+        length = end_idx - start_idx
+        phase = 0.0
+        for index in range(start_idx, end_idx):
+            progress = (index - start_idx) / max(1, length)
+            frequency = 75 - 30 * progress
+            phase += 2 * math.pi * frequency / sample_rate
+            envelope = (1 - progress) ** 2
+            samples[index] += _triangle_wave(phase) * 0.22 * amplitude_scale * envelope
+        _mix_noise(samples, start_seconds=timpani_start, duration_seconds=1.4, sample_rate=sample_rate, amplitude=0.15 * amplitude_scale, seed=99, body_frequency=300)
+        return
+
+    # Default to acoustic_drums
+    for beat in (0, 2):
+        if beat < beat_count:
+            _mix_kick(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.2, sample_rate=sample_rate, amplitude=0.2 * amplitude_scale)
+    for beat in (1, 3):
+        if beat < beat_count:
+            _mix_noise(samples, start_seconds=bar_start + beat * beat_seconds, duration_seconds=0.18, sample_rate=sample_rate, amplitude=0.15 * amplitude_scale, seed=beat + 10, body_frequency=210)
+    for step in range(beat_count * 2):
+        _mix_noise(samples, start_seconds=bar_start + step * beat_seconds / 2, duration_seconds=0.035, sample_rate=sample_rate, amplitude=0.028 * amplitude_scale, seed=step + 90)
 
 
 def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100, stem: str = "full") -> bytes:
@@ -1143,6 +1430,12 @@ def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100,
     vol_melody = (m.melody.volume / 88.0) if (m and m.melody) else 1.0
     vol_master = (m.master.volume / 78.0) if (m and m.master) else 1.0
 
+    family_insts = STYLE_INSTRUMENTS.get(family, STYLE_INSTRUMENTS["lo-fi"])
+    inst_drums = m.drums.instrument if (m and m.drums) else family_insts["drums"]
+    inst_bass = m.bass.instrument if (m and m.bass) else family_insts["bass"]
+    inst_harmony = m.harmony.instrument if (m and m.harmony) else family_insts["harmony"]
+    inst_melody = m.melody.instrument if (m and m.melody) else family_insts["melody"]
+
     cursor = 0.0
     for section in composition.sections:
         section_start = cursor
@@ -1153,7 +1446,7 @@ def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100,
             if include_drums:
                 _mix_drum_pattern(
                     samples,
-                    family=family,
+                    instrument=inst_drums,
                     bar_start=bar_start,
                     beats_per_bar=beats_per_bar,
                     beat_seconds=beat_seconds,
@@ -1165,31 +1458,69 @@ def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100,
             chord_start = section_start + start_beats * beat_seconds
             chord_seconds = duration_beats * beat_seconds
             if include_bass:
-                _mix_tone(
-                    samples,
-                    frequency=_pitch_frequency(_chord_root_pitch(symbol, octave=2)),
-                    start_seconds=chord_start,
-                    duration_seconds=chord_seconds,
-                    sample_rate=sample_rate,
-                    amplitude=(0.18 if family in {"rock", "edm"} else 0.12) * vol_bass,
-                    waveform="saw" if family in {"rock", "edm"} else "triangle",
-                )
-
-            chord_pitches = _power_chord_pitches(symbol) if family == "rock" else _chord_pitches(symbol)
-            chord_waveform = "distorted" if family == "rock" else "saw" if family == "edm" else "triangle"
-            chord_amplitude = 0.065 if family == "rock" else 0.045 if family == "edm" else 0.035
-            if include_harmony:
-                for chord_index, chord_pitch in enumerate(chord_pitches):
-                    strum_offset = chord_index * 0.018 if family == "rock" else 0.0
+                if inst_bass == "electric_bass" and family == "rock":
+                    num_steps = int(duration_beats * 2)
+                    for step in range(num_steps):
+                        step_start = chord_start + step * 0.5 * beat_seconds
+                        step_duration = 0.44 * beat_seconds
+                        # Alternate octave on offbeats to make it driving!
+                        pitch_octave = 2 if step % 4 else 3
+                        _mix_tone(
+                            samples,
+                            frequency=_pitch_frequency(_chord_root_pitch(symbol, octave=pitch_octave)),
+                            start_seconds=step_start,
+                            duration_seconds=step_duration,
+                            sample_rate=sample_rate,
+                            amplitude=0.13 * vol_bass,
+                            waveform=inst_bass,
+                        )
+                else:
                     _mix_tone(
                         samples,
-                        frequency=_pitch_frequency(chord_pitch),
-                        start_seconds=chord_start + strum_offset,
-                        duration_seconds=chord_seconds * 0.96,
+                        frequency=_pitch_frequency(_chord_root_pitch(symbol, octave=2)),
+                        start_seconds=chord_start,
+                        duration_seconds=chord_seconds,
                         sample_rate=sample_rate,
-                        amplitude=chord_amplitude * vol_harmony,
-                        waveform=chord_waveform,
+                        amplitude=(0.18 if inst_bass in {"synth_bass", "sub_bass"} else 0.12) * vol_bass,
+                        waveform=inst_bass,
                     )
+
+            chord_pitches = _power_chord_pitches(symbol) if inst_harmony == "distorted_guitar" else _chord_pitches(symbol)
+            chord_amplitude = 0.05 if inst_harmony in {"distorted_guitar", "electric_guitar"} else 0.045 if inst_harmony == "synth_pad" else 0.035
+            if include_harmony:
+                if inst_harmony in {"distorted_guitar", "electric_guitar"} and family == "rock":
+                    num_steps = int(duration_beats * 2)
+                    for step in range(num_steps):
+                        step_start = chord_start + step * 0.5 * beat_seconds
+                        # Strum pattern: DUN chug-chug DUN DUN chug DUN chug
+                        is_chug = step % 8 in {1, 5, 6}
+                        step_duration = (0.12 if is_chug else 0.44) * beat_seconds
+                        step_amp = chord_amplitude * (0.65 if is_chug else 1.0)
+                        waveform_type = "slap_bass" if is_chug else inst_harmony
+                        
+                        for chord_index, chord_pitch in enumerate(chord_pitches):
+                            strum_offset = chord_index * 0.015 if not is_chug else 0.0
+                            _mix_tone(
+                                samples,
+                                frequency=_pitch_frequency(chord_pitch),
+                                start_seconds=step_start + strum_offset,
+                                duration_seconds=step_duration - strum_offset,
+                                sample_rate=sample_rate,
+                                amplitude=step_amp * vol_harmony,
+                                waveform=waveform_type,
+                            )
+                else:
+                    for chord_index, chord_pitch in enumerate(chord_pitches):
+                        strum_offset = chord_index * 0.018 if inst_harmony in {"distorted_guitar", "acoustic_guitar"} else 0.0
+                        _mix_tone(
+                            samples,
+                            frequency=_pitch_frequency(chord_pitch),
+                            start_seconds=chord_start + strum_offset,
+                            duration_seconds=chord_seconds * 0.96,
+                            sample_rate=sample_rate,
+                            amplitude=chord_amplitude * vol_harmony,
+                            waveform=inst_harmony,
+                        )
 
         melody_cursor = section_start
         for melody_note in section.melody:
@@ -1201,8 +1532,8 @@ def composition_to_wav_bytes(composition: Composition, sample_rate: int = 44100,
                     start_seconds=melody_cursor,
                     duration_seconds=note_seconds * 0.94,
                     sample_rate=sample_rate,
-                    amplitude=0.16 * vol_melody,
-                    waveform="sine",
+                    amplitude=0.18 * vol_melody,
+                    waveform=inst_melody,
                 )
             melody_cursor += note_seconds
 

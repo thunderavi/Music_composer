@@ -15,3 +15,5 @@ build/
 backend/data/
 backend/exports/
 frontend/.vite/
+backend/assets/soundfonts/
+*.sf2

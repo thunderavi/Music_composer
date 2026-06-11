@@ -54,6 +54,49 @@ const MOOD_OPTIONS = ["Relaxed", "Sad", "Hopeful", "Energetic", "Dreamy", "Dark"
 const KEY_OPTIONS = ["C major", "G major", "D major", "A minor", "E minor", "D minor", "F major", "Bb major"];
 const SESSION_STORAGE_KEY = "maestro-studio-session";
 const WORKSPACE_STORAGE_KEY = "maestro-studio-workspace";
+
+const AGENTS = [
+  { id: "reference", name: "Coordinator" },
+  { id: "theorist", name: "Theorist" },
+  { id: "composer", name: "Composer" },
+  { id: "lyricist", name: "Lyricist" },
+  { id: "improvisor", name: "Improvisor" },
+  { id: "director", name: "Director" }
+];
+
+function AgentLoadingOverlay({ progress }) {
+  if (!progress) return null;
+
+  return (
+    <div className="agent-loading-overlay">
+      <div className="agent-circle-container">
+        {AGENTS.map((agent, index) => {
+          const isActive = progress.node === agent.id;
+          const angle = (index / AGENTS.length) * Math.PI * 2 - Math.PI / 2;
+          const radius = 140;
+          const x = Math.cos(angle) * radius;
+          const y = Math.sin(angle) * radius;
+
+          return (
+            <div 
+              key={agent.id}
+              className={`agent-node ${isActive ? "active" : ""}`}
+              style={{ transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))` }}
+            >
+              <div className="agent-dot" />
+              <span className="agent-label">{agent.name}</span>
+            </div>
+          );
+        })}
+        <div className="agent-center-content">
+          <h3>{progress.agent}</h3>
+          <p>"{progress.quote}"</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const STYLE_DEFAULTS = {
   "Lo-fi": { tempo_bpm: 78, instrumentation: "warm piano, soft bass, brushed drums", creativity: 0.75 },
   Pop: { tempo_bpm: 112, instrumentation: "bright synth bass, punchy drums, layered vocal hook", creativity: 0.72 },
@@ -174,6 +217,13 @@ function createManualComposition(input, title) {
         lyric_chord_lines: [`[${chords[0]}]${lyricLine}`]
       }
     ],
+    mixer: {
+      drums: { volume: 74, pan: "C", instrument: "acoustic_drums" },
+      bass: { volume: 82, pan: "L8", instrument: "electric_bass" },
+      harmony: { volume: 68, pan: "R6", instrument: "piano" },
+      melody: { volume: 88, pan: "C", instrument: "piano_lead" },
+      master: { volume: 78, pan: "C", instrument: "master" }
+    },
     lyrics: splitLines(lyricLine).slice(0, 4),
     style_notes: ["Manual project starter. Edit chords, melody, lyrics, and arrangement directly."],
     originality_notes: ["User-created manual draft. Review before release."],
@@ -478,21 +528,136 @@ function PianoRoll({ composition }) {
   );
 }
 
-function MixerPanel({ composition, onVolumeChange, onPanChange }) {
+const DRUM_OPTIONS = [
+  { value: "acoustic_drums", label: "Acoustic Kit" },
+  { value: "electric_drums", label: "Electronic Kit" },
+  { value: "808_drums", label: "TR-808 Kit" },
+  { value: "brush_drums", label: "Jazz Brushes" },
+  { value: "orchestral_timpani", label: "Timpani & Cymbal" }
+];
+
+const BASS_OPTIONS = [
+  { value: "electric_bass", label: "Electric Bass" },
+  { value: "acoustic_bass", label: "Acoustic Bass" },
+  { value: "slap_bass", label: "Slap Bass" },
+  { value: "synth_bass", label: "Synth Bass" },
+  { value: "sub_bass", label: "Sub Bass" }
+];
+
+const HARMONY_OPTIONS = [
+  { value: "piano", label: "Acoustic Piano" },
+  { value: "electric_piano", label: "Rhodes E-Piano" },
+  { value: "acoustic_guitar", label: "Acoustic Guitar" },
+  { value: "electric_guitar", label: "Clean E-Guitar" },
+  { value: "distorted_guitar", label: "Distorted Guitar" },
+  { value: "synth_pad", label: "Synth Pad" },
+  { value: "church_organ", label: "Church Organ" }
+];
+
+const MELODY_OPTIONS = [
+  { value: "piano_lead", label: "Acoustic Piano" },
+  { value: "flute_lead", label: "Expressive Flute" },
+  { value: "violin_lead", label: "Violin Lead" },
+  { value: "electric_guitar", label: "Clean E-Guitar" },
+  { value: "distorted_guitar", label: "Distorted Guitar" },
+  { value: "sine_lead", label: "Sine Synth" },
+  { value: "saw_lead", label: "Saw Synth" },
+  { value: "square_lead", label: "Square Synth" },
+  { value: "vocal_lead", label: "Vocal Synth" }
+];
+
+function getStyleDefaultInstruments(styleStr) {
+  const style = (styleStr || "").trim().toLowerCase();
+  
+  let family = "lo-fi";
+  if (style.includes("rock") || style.includes("punk") || style.includes("metal") || style.includes("grunge") || style.includes("guitar")) {
+    family = "rock";
+  } else if (style.includes("edm") || style.includes("house") || style.includes("techno") || style.includes("rave") || style.includes("electronic")) {
+    family = "edm";
+  } else if (style.includes("jazz") || style.includes("swing") || style.includes("bebop")) {
+    family = "jazz";
+  } else if (style.includes("folk") || style.includes("acoustic") || style.includes("country") || style.includes("bluegrass")) {
+    family = "folk";
+  } else if (style.includes("cinematic") || style.includes("strings") || style.includes("orchestral") || style.includes("epic") || style.includes("classical")) {
+    family = "cinematic";
+  } else if (style.includes("r&b") || style.includes("rnb") || style.includes("groove") || style.includes("soul") || style.includes("hip hop") || style.includes("trap")) {
+    family = "r&b";
+  } else if (style.includes("pop") || style.includes("radio") || style.includes("catchy") || style.includes("hook")) {
+    family = "pop";
+  } else if (style.includes("chill") || style.includes("lofi") || style.includes("lo-fi") || style.includes("vinyl") || style.includes("mellow") || style.includes("relaxed")) {
+    family = "lo-fi";
+  }
+
+  const defaults = {
+    rock: { drums: "acoustic_drums", bass: "electric_bass", harmony: "distorted_guitar", melody: "electric_guitar" },
+    edm: { drums: "electronic_drums", bass: "synth_bass", harmony: "synth_pad", melody: "piano_lead" },
+    jazz: { drums: "brush_drums", bass: "acoustic_bass", harmony: "piano", melody: "piano_lead" },
+    folk: { drums: "acoustic_drums", bass: "acoustic_bass", harmony: "acoustic_guitar", melody: "violin_lead" },
+    cinematic: { drums: "orchestral_timpani", bass: "acoustic_bass", harmony: "synth_pad", melody: "violin_lead" },
+    "r&b": { drums: "808_drums", bass: "electric_bass", harmony: "electric_piano", melody: "vocal_lead" },
+    "lo-fi": { drums: "808_drums", bass: "sub_bass", harmony: "electric_piano", melody: "piano_lead" },
+    pop: { drums: "electronic_drums", bass: "electric_bass", harmony: "piano", melody: "piano_lead" },
+  };
+
+  return defaults[family] || defaults["lo-fi"];
+}
+
+function MixerPanel({ composition, onVolumeChange, onPanChange, onInstrumentChange }) {
+  const styleDefaults = getStyleDefaultInstruments(composition?.style);
   const mixer = composition?.mixer || {
-    drums: { volume: 74, pan: "C" },
-    bass: { volume: 82, pan: "L8" },
-    harmony: { volume: 68, pan: "R6" },
-    melody: { volume: 88, pan: "C" },
-    master: { volume: 78, pan: "C" }
+    drums: { volume: 74, pan: "C", instrument: styleDefaults.drums },
+    bass: { volume: 82, pan: "L8", instrument: styleDefaults.bass },
+    harmony: { volume: 68, pan: "R6", instrument: styleDefaults.harmony },
+    melody: { volume: 88, pan: "C", instrument: styleDefaults.melody },
+    master: { volume: 78, pan: "C", instrument: "master" }
   };
 
   const channels = [
-    { name: "Drums", key: "drums", level: mixer.drums?.volume ?? 74, pan: mixer.drums?.pan ?? "C", color: "cyan" },
-    { name: "Bass", key: "bass", level: mixer.bass?.volume ?? 82, pan: mixer.bass?.pan ?? "L8", color: "lime" },
-    { name: "Harmony", key: "harmony", level: mixer.harmony?.volume ?? 68, pan: mixer.harmony?.pan ?? "R6", color: "violet" },
-    { name: "Melody", key: "melody", level: mixer.melody?.volume ?? 88, pan: mixer.melody?.pan ?? "C", color: "amber" },
-    { name: "Master", key: "master", level: mixer.master?.volume ?? 78, pan: mixer.master?.pan ?? "C", color: "master" }
+    { 
+      name: "Drums", 
+      key: "drums", 
+      level: mixer.drums?.volume ?? 74, 
+      pan: mixer.drums?.pan ?? "C", 
+      instrument: mixer.drums?.instrument ?? styleDefaults.drums,
+      options: DRUM_OPTIONS,
+      color: "cyan" 
+    },
+    { 
+      name: "Bass", 
+      key: "bass", 
+      level: mixer.bass?.volume ?? 82, 
+      pan: mixer.bass?.pan ?? "L8", 
+      instrument: mixer.bass?.instrument ?? styleDefaults.bass,
+      options: BASS_OPTIONS,
+      color: "lime" 
+    },
+    { 
+      name: "Harmony", 
+      key: "harmony", 
+      level: mixer.harmony?.volume ?? 68, 
+      pan: mixer.harmony?.pan ?? "R6", 
+      instrument: mixer.harmony?.instrument ?? styleDefaults.harmony,
+      options: HARMONY_OPTIONS,
+      color: "violet" 
+    },
+    { 
+      name: "Melody", 
+      key: "melody", 
+      level: mixer.melody?.volume ?? 88, 
+      pan: mixer.melody?.pan ?? "C", 
+      instrument: mixer.melody?.instrument ?? styleDefaults.melody,
+      options: MELODY_OPTIONS,
+      color: "amber" 
+    },
+    { 
+      name: "Master", 
+      key: "master", 
+      level: mixer.master?.volume ?? 78, 
+      pan: mixer.master?.pan ?? "C", 
+      instrument: "master",
+      options: null,
+      color: "master" 
+    }
   ];
 
   return (
@@ -508,6 +673,20 @@ function MixerPanel({ composition, onVolumeChange, onPanChange }) {
         {channels.map((channel) => (
           <div className={`mixer-strip ${channel.color}`} key={channel.key}>
             <strong>{channel.name}</strong>
+            {channel.options && (
+              <select
+                className="mixer-inst-select"
+                value={channel.instrument}
+                onChange={(e) => onInstrumentChange(channel.key, e.target.value)}
+                title={`${channel.name} Instrument`}
+              >
+                {channel.options.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            )}
             <div className="mixer-fader-area">
               <span className="mixer-vol-label">{channel.level}</span>
               <div className="mixer-fader-wrapper">
@@ -530,6 +709,7 @@ function MixerPanel({ composition, onVolumeChange, onPanChange }) {
               className="mixer-pan-select"
               value={channel.pan}
               onChange={(e) => onPanChange(channel.key, e.target.value)}
+              title={`${channel.name} Pan`}
             >
               <option value="L10">L10</option>
               <option value="L8">L8</option>
@@ -1013,6 +1193,7 @@ function App() {
   const [loadingWorkspaces, setLoadingWorkspaces] = useState(false);
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [loadingDrafts, setLoadingDrafts] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(null);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -1462,25 +1643,32 @@ function App() {
 
   async function handleGenerate() {
     if (!requireWorkspaceProject("compose")) return;
+    setGenerationProgress({ agent: "Coordinator Agent", quote: "Analyzing structural references...", node: "reference" });
     await runWithStatus("generate", async () => {
-      const response = await composeSong(token, input);
-      const nextComposition = { ...response.composition, title: projectName };
-      const nextVersions = response.versions
-        ? Object.fromEntries(
-            Object.entries(response.versions).map(([tier, comp]) => [tier, { ...comp, title: projectName }])
-          )
-        : null;
-      const linkedProject = await updateProject(token, selectedProject.project_id, { draft_id: response.draft_id, title: nextComposition.title });
-      setSelectedProject(linkedProject);
-      setDraftId(response.draft_id);
-      setComposition(nextComposition);
-      setVersions(nextVersions);
-      setActiveTier("balanced");
-      setRenderedAudio(null);
-      setStatus(response.warnings?.length ? response.warnings.join(" ") : "Draft generated.");
-      await refreshQuality(nextComposition);
-      await refreshDrafts();
-      await refreshProjects(selectedWorkspace.workspace_id);
+      try {
+        const response = await composeSong(token, input, (progress) => {
+          setGenerationProgress(progress);
+        });
+        const nextComposition = { ...response.composition, title: projectName };
+        const nextVersions = response.versions
+          ? Object.fromEntries(
+              Object.entries(response.versions).map(([tier, comp]) => [tier, { ...comp, title: projectName }])
+            )
+          : null;
+        const linkedProject = await updateProject(token, selectedProject.project_id, { draft_id: response.draft_id, title: nextComposition.title });
+        setSelectedProject(linkedProject);
+        setDraftId(response.draft_id);
+        setComposition(nextComposition);
+        setVersions(nextVersions);
+        setActiveTier("balanced");
+        setRenderedAudio(null);
+        setStatus(response.warnings?.length ? response.warnings.join(" ") : "Draft generated.");
+        await refreshQuality(nextComposition);
+        await refreshDrafts();
+        await refreshProjects(selectedWorkspace.workspace_id);
+      } finally {
+        setGenerationProgress(null);
+      }
     });
   }
 
@@ -2100,6 +2288,7 @@ function App() {
                 renderedAudio={renderedAudio} 
                 onVolumeChange={(channelKey, val) => updateMixer(channelKey, "volume", val)}
                 onPanChange={(channelKey, val) => updateMixer(channelKey, "pan", val)}
+                onInstrumentChange={(channelKey, val) => updateMixer(channelKey, "instrument", val)}
               />
 
               {composition.sections.map((section, index) => {
@@ -2467,8 +2656,11 @@ function App() {
         </section>
       </div>
     )}
-  </>
-);
+      {busyAction === "generate" && generationProgress && (
+        <AgentLoadingOverlay progress={generationProgress} />
+      )}
+    </>
+  );
 }
 
 export default App;

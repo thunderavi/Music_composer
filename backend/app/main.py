@@ -1,4 +1,5 @@
 import logging
+import asyncio
 import json
 import hashlib
 import hmac
@@ -11,7 +12,8 @@ from functools import lru_cache
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Response
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Response, Query
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import Settings, get_settings
@@ -220,38 +222,53 @@ def update_workspace_project(
         raise HTTPException(status_code=404, detail=detail) from exc
 
 
-@api_router.post("/compose", response_model=ComposeResponse)
+@api_router.post("/compose")
 async def compose(
     request: ComposeRequest,
     user: UserPublic = Depends(get_current_user),
     nim_client: NimClient = Depends(get_nim_client),
     store: DraftStore = Depends(get_store),
-) -> ComposeResponse:
-    try:
-        raw_versions = await nim_client.compose_langgraph(request)
-        versions = {
-            tier: optimize_generated_composition(comp)
-            for tier, comp in raw_versions.items()
-            if comp is not None
-        }
-        composition = versions.get("balanced")
-        if not composition:
-            raise RuntimeError("Composition workflow did not return a balanced variant.")
-    except NimTimeoutError as exc:
-        raise HTTPException(status_code=504, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.exception("Composition generation failed")
-        raise HTTPException(status_code=502, detail=f"NVIDIA NIM generation failed: {exc}") from exc
+) -> StreamingResponse:
+    async def event_stream():
+        try:
+            async for event in nim_client.stream_compose_langgraph(request):
+                if event["type"] == "complete":
+                    versions = {}
+                    for tier, comp_dict in event.get("compositions", {}).items():
+                        if comp_dict:
+                            comp = Composition.model_validate(comp_dict)
+                            versions[tier] = optimize_generated_composition(comp)
+                            
+                    composition = versions.get("balanced")
+                    if not composition:
+                        yield f"data: {json.dumps({'error': 'Composition workflow did not return a balanced variant.'})}\n\n"
+                        return
 
-    warnings = validate_composition(composition)
-    blocking = [warning for warning in warnings if warning.startswith("Invalid")]
-    if blocking:
-        raise HTTPException(status_code=422, detail={"message": "Generated composition failed validation.", "warnings": warnings})
+                    warnings = validate_composition(composition)
+                    blocking = [warning for warning in warnings if warning.startswith("Invalid")]
+                    if blocking:
+                        yield f"data: {json.dumps({'error': 'Generated composition failed validation.', 'warnings': warnings})}\n\n"
+                        return
 
-    draft_id = store.create(user.user_id, composition)
-    return ComposeResponse(draft_id=draft_id, composition=composition, warnings=warnings, versions=versions or None)
+                    draft_id = store.create(user.user_id, composition)
+                    
+                    final_event = {
+                        "type": "complete",
+                        "draft_id": draft_id,
+                        "composition": composition.model_dump(),
+                        "versions": {k: v.model_dump() for k, v in versions.items()},
+                        "warnings": warnings
+                    }
+                    yield f"data: {json.dumps(final_event)}\n\n"
+                else:
+                    yield f"data: {json.dumps(event)}\n\n"
+        except NimTimeoutError as exc:
+            yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+        except Exception as exc:
+            logger.exception("Composition generation failed")
+            yield f"data: {json.dumps({'error': f'NVIDIA NIM generation failed: {exc}'})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @api_router.post("/refine", response_model=ComposeResponse)
