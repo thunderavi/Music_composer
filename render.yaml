@@ -1,0 +1,29 @@
+services:
+  # Backend Docker Service
+  - type: web
+    name: music-composer-backend
+    env: docker
+    plan: free
+    rootDir: backend
+    envVars:
+      - key: PORT
+        value: 5050
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+
+  # Frontend Static Site
+  - type: static
+    name: music-composer-frontend
+    env: static
+    plan: free
+    rootDir: frontend
+    buildCommand: npm run build
+    publishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        fromService:
+          type: web
+          name: music-composer-backend
+          property: url
